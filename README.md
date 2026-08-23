@@ -14,6 +14,8 @@ _本项目由社区独立维护，不是 DeepSeek 官方产品，也不是任何
 
 简体中文 | [English](README.en.md)
 
+<a href="https://www.producthunt.com/products/specsrelay?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-specsrelay" target="_blank" rel="noopener noreferrer"><img alt="SpecsRelay - Turn AI chats into reviewed tasks for local coding agents | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1228503&amp;theme=light&amp;t=1787459593479"></a>
+
 ![SpecsRelay 将 DeepSeek 对话整理为需求并发送到 DSH Agent](assets/specsrelay-dsh-hero.png)
 
 [快速安装](#快速安装) · [工作流程](#工作流程) · [支持的桌面客户端](#支持的桌面客户端) · [数据与安全](#数据与安全)

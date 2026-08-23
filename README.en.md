@@ -14,6 +14,8 @@ DSH Desktop by anywhere-labs is the current recommendation for regular users. Co
 
 [简体中文](README.md) | English
 
+<a href="https://www.producthunt.com/products/specsrelay?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-specsrelay" target="_blank" rel="noopener noreferrer"><img alt="SpecsRelay - Turn AI chats into reviewed tasks for local coding agents | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1228503&amp;theme=light&amp;t=1787459593479"></a>
+
 ![SpecsRelay organizes a DeepSeek conversation and sends it to a DSH Agent](assets/specsrelay-dsh-hero.png)
 
 [Quick install](#quick-install) · [Workflow](#workflow) · [Supported desktop clients](#supported-desktop-clients) · [Data and security](#data-and-security)
