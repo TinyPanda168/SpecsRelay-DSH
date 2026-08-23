@@ -112,7 +112,7 @@ See [Desktop client adapters](docs/desktop-client-adapters.en.md) for detection,
 - An isolated native session preserves the DeepSeek sign-in. SpecsRelay does not read or store account passwords.
 - Node integration and preload access remain disabled; main-frame navigation is limited to `https://chat.deepseek.com`.
 - DOM capture runs only after the user selects **Organize current conversation**. Loading, showing, and resizing the page do not capture content.
-- The current conversation and requirement draft are saved locally before the DSH-configured model processes them. Clarification and revision use the same model path.
+- The current conversation, requirement draft, recovery history, and execution snapshots are stored in SpecsRelay's local DSH-host data directory; browser storage remains a compatibility fallback. The DSH-configured model then processes the requirement, and clarification and revision use the same model path.
 - The `specsrelay-requirement-analysis` Skill is built into the workflow and does not require separate installation or configuration.
 - **Send to DSH and start** submits the requirement through DSH's native input path. Restoring a historical snapshot restores only the draft and never starts another Agent turn.
 

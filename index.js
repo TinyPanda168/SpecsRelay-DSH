@@ -18,6 +18,10 @@ import {
 } from "./lib/handoff.js";
 import { createDesktopBrowserHost } from "./lib/native-browser.js";
 import { createProcessDesktopWebPanels } from "./lib/process-web-panels.js";
+import {
+  createWorkspaceStore,
+  MAX_WORKSPACE_STATE_BYTES
+} from "./lib/workspace-store.js";
 
 export const name = "specsrelay-dsh-deepseek";
 export const inject = ["agents", "llm", "skills", "webServer"];
@@ -788,7 +792,7 @@ export async function organizeImportedContext(ctx, request) {
   };
 }
 
-function registerBrowserRoutes(ctx, inbox, captures, browser) {
+function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces) {
   const requireBrowserClient = (req, res) => {
     if (isBrowserRequestAllowed(req)) {
       return true;
@@ -947,6 +951,37 @@ function registerBrowserRoutes(ctx, inbox, captures, browser) {
       }
     }
   });
+  const disposeWorkspaceState = ctx.webServer.register({
+    kind: "exact",
+    path: "/specsrelay/v1/workspace-state",
+    handler: async (req, res) => {
+      if (!requireBrowserClient(req, res)) return;
+      try {
+        if (req.method === "GET") {
+          const key = boundedString(
+            new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("key"),
+            "Workspace state key",
+            6000
+          );
+          jsonResponse(res, 200, { item: await workspaces.read(key) });
+          return;
+        }
+        if (req.method === "PUT") {
+          const value = await readJsonBody(req, MAX_WORKSPACE_STATE_BYTES);
+          const key = boundedString(value?.key, "Workspace state key", 6000);
+          const result = await workspaces.write(key, value?.state);
+          jsonResponse(res, 200, { savedAt: result.savedAt });
+          return;
+        }
+        res.setHeader("allow", "GET, PUT");
+        jsonResponse(res, 405, { error: "Method not allowed." });
+      } catch (error) {
+        jsonResponse(res, 400, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  });
   const disposeOrganizer = ctx.webServer.register({
     kind: "exact",
     path: "/specsrelay/v1/organize",
@@ -996,6 +1031,7 @@ function registerBrowserRoutes(ctx, inbox, captures, browser) {
   return async () => {
     disposeOrganizerStatus();
     disposeOrganizer();
+    disposeWorkspaceState();
     disposeReceipt();
     disposeBrowserCapture();
     disposeBrowserLayout();
@@ -1017,6 +1053,9 @@ export async function apply(ctx) {
 
   const inbox = createInbox();
   const captures = createCaptureInbox();
+  const workspaces = createWorkspaceStore(
+    path.join(bridgeDirectory(), "workspace-state")
+  );
   const processWebPanels = ctx.get("desktopWebPanels")
     ? undefined
     : createProcessDesktopWebPanels();
@@ -1025,7 +1064,13 @@ export async function apply(ctx) {
   );
   ctx.effect(
     () => {
-      const disposeRoutes = registerBrowserRoutes(ctx, inbox, captures, browser);
+      const disposeRoutes = registerBrowserRoutes(
+        ctx,
+        inbox,
+        captures,
+        browser,
+        workspaces
+      );
       return async () => {
         await disposeRoutes();
         await processWebPanels?.dispose();

@@ -112,7 +112,7 @@ Pilot、DataElement 和 myYangyunfan 的公开安装包只有在合入对应原�
 - 隔离的原生 session 会保留 DeepSeek 登录状态；SpecsRelay 不读取或保存账号密码。
 - Node integration 与 preload 访问保持关闭；主 frame 导航仅允许 `https://chat.deepseek.com`。
 - 只有用户点击 **整理当前对话** 后才会执行 DOM 抓取；加载、显示和调整网页尺寸不会抓取内容。
-- 当前对话与需求草稿先保存在本地，再交给 DSH 已配置的模型整理；澄清和修订沿用同一模型链路。
+- 当前对话、需求草稿、恢复记录与执行快照保存在 DSH 主机的本地 SpecsRelay 数据目录；浏览器存储仅作为兼容回退。随后再交给 DSH 已配置的模型整理，澄清和修订沿用同一模型链路。
 - `specsrelay-requirement-analysis` Skill 内置在工作流中，不需要用户单独安装或配置。
 - **发送到 DSH 并开始处理** 会通过 DSH 原生输入接口提交需求；恢复历史快照只恢复草稿，不会重复启动 Agent。
 

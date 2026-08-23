@@ -108,6 +108,31 @@
         }
       };
 
+      async function readWorkspaceState(key) {
+        const response = await fetch(
+          `${API}/workspace-state?key=${encodeURIComponent(key)}`,
+          { cache: "no-store" }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        return data.item?.state ?? null;
+      }
+
+      async function writeWorkspaceState(key, state) {
+        const response = await fetch(`${API}/workspace-state`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key, state })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        return data;
+      }
+
       function useInbox() {
         return useSyncExternalStore(
           inbox.subscribe,
@@ -1072,6 +1097,27 @@ ${listLines(handoff.open_questions)}`;
             )}`,
           [currentWorkspace, sessionId]
         );
+        const workspaceState = useMemo(
+          () => ({
+            version: 3,
+            sources,
+            integratedFingerprint,
+            handoff: summary,
+            answers,
+            history,
+            executionHistory,
+            organizerRoute
+          }),
+          [
+            answers,
+            executionHistory,
+            history,
+            integratedFingerprint,
+            organizerRoute,
+            sources,
+            summary
+          ]
+        );
         const sorted = useMemo(
           () =>
             [...state.items].sort((left, right) =>
@@ -1153,23 +1199,39 @@ ${listLines(handoff.open_questions)}`;
         }, [prepareProject, projectPath, targetShouldPrepare]);
 
         useEffect(() => {
-          let restored = normalizeWorkspace(null);
+          let cancelled = false;
+          const restore = (value) => {
+            const restored = normalizeWorkspace(value);
+            setSources(restored.sources);
+            setIntegratedFingerprint(restored.integratedFingerprint);
+            setSummary(restored.handoff);
+            setAnswers(restored.answers);
+            setHistory(restored.history);
+            setExecutionHistory(restored.executionHistory);
+            setOrganizerRoute(restored.organizerRoute);
+          };
+          let cached = null;
           try {
-            restored = normalizeWorkspace(
-              JSON.parse(localStorage.getItem(storageKey) || "null")
-            );
+            cached = JSON.parse(localStorage.getItem(storageKey) || "null");
           } catch {
-            // A malformed or unavailable local draft starts as an empty workspace.
+            // A malformed or unavailable browser cache does not block host restoration.
           }
-          setSources(restored.sources);
-          setIntegratedFingerprint(restored.integratedFingerprint);
-          setSummary(restored.handoff);
-          setAnswers(restored.answers);
-          setHistory(restored.history);
-          setExecutionHistory(restored.executionHistory);
-          setOrganizerRoute(restored.organizerRoute);
+          restore(cached);
           setPanel("workbench");
-          setLoadedStorageKey(storageKey);
+          setLoadedStorageKey("");
+          void readWorkspaceState(storageKey)
+            .then((durable) => {
+              if (!cancelled && durable) restore(durable);
+            })
+            .catch(() => {
+              // Browser cache remains the fallback when host persistence is unavailable.
+            })
+            .finally(() => {
+              if (!cancelled) setLoadedStorageKey(storageKey);
+            });
+          return () => {
+            cancelled = true;
+          };
         }, [storageKey]);
 
         useEffect(() => {
@@ -1197,32 +1259,20 @@ ${listLines(handoff.open_questions)}`;
         useEffect(() => {
           if (loadedStorageKey !== storageKey) return;
           try {
-            localStorage.setItem(
-              storageKey,
-              JSON.stringify({
-                version: 2,
-                sources,
-                integratedFingerprint,
-                handoff: summary,
-                answers,
-                history,
-                executionHistory,
-                organizerRoute
-              })
-            );
+            localStorage.setItem(storageKey, JSON.stringify(workspaceState));
           } catch {
-            // The live workspace remains usable when browser persistence is unavailable.
+            // Host persistence remains available when the browser cache is unavailable.
           }
+          const timer = window.setTimeout(() => {
+            void writeWorkspaceState(storageKey, workspaceState).catch(() => {
+              // Browser cache remains the fallback when host persistence fails.
+            });
+          }, 250);
+          return () => window.clearTimeout(timer);
         }, [
-          answers,
-          executionHistory,
-          history,
-          integratedFingerprint,
           loadedStorageKey,
-          organizerRoute,
-          sources,
           storageKey,
-          summary
+          workspaceState
         ]);
 
         useEffect(() => {
@@ -1259,6 +1309,9 @@ ${listLines(handoff.open_questions)}`;
         }, []);
 
         const closeView = () => {
+          if (loadedStorageKey === storageKey) {
+            void writeWorkspaceState(storageKey, workspaceState).catch(() => {});
+          }
           void fetch(`${API}/browser/layout`, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -1517,25 +1570,25 @@ ${listLines(handoff.open_questions)}`;
             ]);
             setProjectPath(loadedProjectPath);
             setExecutionHistory(nextExecutionHistory);
+            const targetStorageKey = `${WORKSPACE_STORAGE_PREFIX}${encodeURIComponent(
+              loadedProjectPath || result.sessionId || "global"
+            )}`;
+            const loadedWorkspaceState = {
+              ...workspaceState,
+              executionHistory: nextExecutionHistory
+            };
             try {
               localStorage.setItem(
-                `${WORKSPACE_STORAGE_PREFIX}${encodeURIComponent(
-                  loadedProjectPath || result.sessionId || "global"
-                )}`,
-                JSON.stringify({
-                  version: 2,
-                  sources,
-                  integratedFingerprint,
-                  handoff: summary,
-                  answers,
-                  history,
-                  executionHistory: nextExecutionHistory,
-                  organizerRoute
-                })
+                targetStorageKey,
+                JSON.stringify(loadedWorkspaceState)
               );
             } catch {
-              // Loading remains available when browser persistence is unavailable.
+              // Host persistence remains available when the browser cache is unavailable.
             }
+            void writeWorkspaceState(
+              targetStorageKey,
+              loadedWorkspaceState
+            ).catch(() => {});
             openSession(result.sessionId);
             closeView();
           }
