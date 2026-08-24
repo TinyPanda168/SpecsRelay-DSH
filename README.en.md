@@ -14,8 +14,7 @@ DSH Desktop by anywhere-labs is the current recommendation for regular users. Co
 
 [简体中文](README.md) | English
 
-<a href="https://www.producthunt.com/products/specsrelay?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-specsrelay" target="_blank" rel="noopener noreferrer"><img alt="SpecsRelay - Turn AI chats into reviewed tasks for local coding agents | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1228503&amp;theme=light&amp;t=1787459593479"></a>
-<a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt launch rank number 66" src="https://img.shields.io/static/v1?label=Product%20Hunt%20Launch&amp;message=%2366&amp;color=FF6154&amp;labelColor=FF6154&amp;style=for-the-badge&amp;logo=producthunt&amp;logoColor=white"></a>
+<a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt launch rank number 66" width="250" height="54" src="assets/product-hunt-rank-66.svg"></a>
 
 ![SpecsRelay organizes a DeepSeek conversation and sends it to a DSH Agent](assets/specsrelay-dsh-hero.png)
 
