@@ -15,7 +15,7 @@ _本项目由社区独立维护，不是 DeepSeek 官方产品，也不是任何
 简体中文 | [English](README.en.md)
 
 <a href="https://www.producthunt.com/products/specsrelay?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-specsrelay" target="_blank" rel="noopener noreferrer"><img alt="SpecsRelay - Turn AI chats into reviewed tasks for local coding agents | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1228503&amp;theme=light&amp;t=1787459593479"></a>
-<a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt 发布日排名第 66 名" src="https://img.shields.io/badge/Product%20Hunt%20Launch-%2366-FF6154?logo=producthunt&amp;logoColor=white"></a>
+<a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt 发布日排名第 66 名" src="https://img.shields.io/static/v1?label=Product%20Hunt%20Launch&amp;message=%2366&amp;color=FF6154&amp;labelColor=FF6154&amp;style=for-the-badge&amp;logo=producthunt&amp;logoColor=white"></a>
 
 ![SpecsRelay 将 DeepSeek 对话整理为需求并发送到 DSH Agent](assets/specsrelay-dsh-hero.png)
 
