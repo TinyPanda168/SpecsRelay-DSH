@@ -407,6 +407,56 @@ ${listLines(handoff.open_questions)}`;
         return { ok: true, sessionId, submitted: item.submit === true };
       }
 
+      function loadClarificationDraft(ctx, sessionId, projectPath, prompt) {
+        const sessions = ctx.sessions.list.getSnapshot();
+        if (sessions.current !== sessionId) {
+          return { ok: false, message: "请先切回发起澄清的 DSH 会话。" };
+        }
+        if (normalizedPath(sessions.byId[sessionId]?.cwd) !== normalizedPath(projectPath)) {
+          return { ok: false, message: "当前项目已变化，请切回原项目。" };
+        }
+        const pendingQuestion = ctx.get?.("uiSession")?.sessionStatus
+          ?.getSnapshot?.().get(sessionId)?.pendingInteraction;
+        if (pendingQuestion) {
+          return {
+            ok: false,
+            pendingQuestion: true,
+            message: "当前 DSH 正等待问题卡片的回答。请把你确认的决定填入该卡片；不要发送整段 DeepSeek 讨论。"
+          };
+        }
+        const scope = ctx.sessions.scope(sessionId);
+        if (!scope) return { ok: false, message: "当前 DSH 会话尚未准备好。" };
+        const input = ctx.conversation.input.for(scope);
+        const state = input.state?.getSnapshot?.();
+        if (!state || typeof state.draft !== "string" ||
+            !Array.isArray(state.attachmentIds) || typeof state.phase !== "string") {
+          return { ok: false, message: "此桌面客户端暂不支持安全写入澄清草稿。请复制下方内容，并在原 DSH 会话中手动粘贴。" };
+        }
+        if (state.draft.trim() || state.attachmentIds.length || state.phase !== "plain") {
+          return { ok: false, message: "当前输入框已有内容，请先处理原草稿，再放入澄清结果。" };
+        }
+        input.setDraft(prompt);
+        input.focus?.();
+        return { ok: true };
+      }
+
+      function pendingQuestionText(ctx, sessionId) {
+        const pending = ctx.get?.("uiSession")?.sessionStatus
+          ?.getSnapshot?.().get(sessionId)?.pendingInteraction;
+        if (pending?.kind !== "question" || !Array.isArray(pending.questions)) return "";
+        const questions = pending.questions.map((item) => {
+          if (typeof item?.question !== "string") return "";
+          const options = Array.isArray(item.options)
+            ? item.options.map((option) => option.label).filter((label) => typeof label === "string")
+            : [];
+          return [item.question, ...options.map((option) => `- ${option}`)].join("\n");
+        }).filter(Boolean);
+        const combined = questions.join("\n\n");
+        if (combined.length <= 1800) return combined;
+        const first = questions[0] || "";
+        return first.length <= 1800 ? first : "";
+      }
+
       async function prepareProjectTarget(ctx, projectPath) {
         const expected = normalizedPath(projectPath);
         if (!expected) {
@@ -1052,9 +1102,214 @@ ${listLines(handoff.open_questions)}`;
         );
       }
 
+      function SpecsRelayClarificationPanel({
+        browserState,
+        draftClarification,
+        onComplete,
+        pendingQuestion,
+        projectPath,
+        sessionId
+      }) {
+        const [question, setQuestion] = useState("");
+        const [pending, setPending] = useState(null);
+        const [result, setResult] = useState(null);
+        const [busy, setBusy] = useState("");
+        const [error, setError] = useState("");
+        const [draftCopied, setDraftCopied] = useState(false);
+        const [pendingCard, setPendingCard] = useState(false);
+        const [cardAnswer, setCardAnswer] = useState("");
+        const [cardCopied, setCardCopied] = useState(false);
+        const storageKey = `specsrelay.dsh.clarification.v4:${encodeURIComponent(sessionId)}`;
+
+        useEffect(() => {
+          let active = true;
+          if (pendingQuestion) setQuestion((current) => current || pendingQuestion);
+          const restore = (value) => {
+            const packet = value?.baseline;
+            if (active && packet?.version === 4 && packet.sessionId === sessionId &&
+                normalizedPath(packet.projectPath) === normalizedPath(projectPath)) {
+              setPending(packet);
+              setQuestion(packet.question || "");
+            }
+          };
+          let cached = null;
+          try { cached = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch {}
+          if (cached?.version === 4) restore(cached);
+          else void readWorkspaceState(storageKey).then(restore).catch(() => {});
+          void fetch(`${API}/clarification/question?sessionId=${encodeURIComponent(sessionId)}`, {
+            cache: "no-store"
+          }).then(async (response) => {
+            const data = await response.json();
+            if (active && response.ok) setQuestion((current) => current || data.question || "");
+          }).catch(() => {});
+          return () => { active = false; };
+        }, [pendingQuestion, projectPath, sessionId, storageKey]);
+
+        const savePending = async (packet) => {
+          const state = { version: 4, baseline: packet };
+          let cached = false;
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(state));
+            cached = true;
+          } catch {
+            // Host persistence may still be available.
+          }
+          try {
+            await writeWorkspaceState(storageKey, state);
+          } catch (cause) {
+            if (!cached) throw cause;
+          }
+        };
+
+        const request = async (route, value) => {
+          const response = await fetch(`${API}/clarification/${route}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(value)
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+          return data;
+        };
+
+        const begin = async () => {
+          setBusy("begin");
+          setError("");
+          try {
+            const packet = await request("begin", { sessionId, question });
+            await savePending(packet);
+            setPending(packet);
+            setResult(null);
+            setDraftCopied(false);
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          } finally { setBusy(""); }
+        };
+
+        const collect = async () => {
+          setBusy("collect");
+          setError("");
+          try {
+            setResult(await request("result", { sessionId, baseline: pending }));
+            setDraftCopied(false);
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          } finally { setBusy(""); }
+        };
+
+        const draft = async () => {
+          const loaded = draftClarification(sessionId, result.projectPath, result.prompt);
+          if (!loaded.ok) {
+            setPendingCard(Boolean(loaded.pendingQuestion));
+            setError(loaded.message);
+            return;
+          }
+          await savePending(null).catch(() => {});
+          onComplete();
+        };
+
+        const reset = async () => {
+          try {
+            await savePending(null);
+            setPending(null);
+            setResult(null);
+            setDraftCopied(false);
+            setPendingCard(false);
+            setCardAnswer("");
+            setCardCopied(false);
+            setError("");
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          }
+        };
+
+        return h(
+          React.Fragment,
+          null,
+          h("strong", null, "把产品问题带回 DeepSeek"),
+          h("p", { style: { color: "var(--dsw-alias-text-secondary)", fontSize: 12, margin: 0 } },
+            "在原 DeepSeek 对话里讨论并确认，再把新增决定放回当前 DSH 会话草稿。回填草稿时不会自动发送 Agent。"),
+          h("div", { style: { fontSize: 12, overflowWrap: "anywhere" } }, `当前项目：${projectPath || "未关联项目"}`),
+          error && h("div", { role: "alert", style: { color: "var(--dsw-alias-state-error-primary)", fontSize: 12 } }, error),
+          !pending && h(
+            React.Fragment,
+            null,
+            h("label", { htmlFor: "specsrelay-clarification-question", style: { fontSize: 12 } }, "待确认的问题"),
+            h("textarea", {
+              id: "specsrelay-clarification-question",
+              onChange: (event) => setQuestion(event.target.value),
+              placeholder: "写下需要你决定的产品问题；可编辑从当前 DSH 会话提取的建议问题。",
+              rows: 5,
+              style: textAreaStyle,
+              value: question
+            }),
+            h(Button, {
+              disabled: browserState !== "ready" || !projectPath || !question.trim() || Boolean(busy),
+              onClick: () => void begin(),
+              variant: "primary"
+            }, busy === "begin" ? "正在发送到原对话…" : "开始澄清")
+          ),
+          pending && h(
+            React.Fragment,
+            null,
+            h("div", { style: { display: "flex", gap: 8, justifyContent: "space-between" } },
+              h("strong", null, "1 · 已发送到左侧原对话"),
+              h(Button, { onClick: () => void reset(), size: "sm", variant: "ghost" }, "重新开始")
+            ),
+            h("p", { style: { color: "var(--dsw-alias-text-secondary)", fontSize: 12, margin: 0 } },
+              "问题已自动发送。请在左侧继续讨论，直到你明确确认决定。"),
+            h("strong", null, "2 · 回收新增讨论"),
+            h(Button, { disabled: browserState !== "ready" || Boolean(busy),
+              onClick: () => void collect(), variant: "outline" },
+              busy === "collect" ? "正在读取新增讨论…" : "读取刚才的讨论"),
+            result && h(
+              React.Fragment,
+              null,
+              h("p", { style: { fontSize: 12, margin: 0 } },
+                `只检测到本次新增的 ${result.newMessageCount} 条消息；请核对下方草稿。`),
+              h("textarea", { "aria-label": "待放入 DSH 的澄清草稿", readOnly: true,
+                rows: 10, style: textAreaStyle, value: result.prompt }),
+              h(Button, { onClick: () => void draft(), variant: "primary" },
+                "放入当前 DSH 草稿（不发送）"),
+              h(Button, {
+                onClick: () => void navigator.clipboard.writeText(result.prompt)
+                  .then(() => { setError(""); setDraftCopied(true); })
+                  .catch(() => setError("复制失败，请手动选中上方草稿复制。")),
+                variant: "outline"
+              }, draftCopied ? "已复制草稿" : "复制草稿（备用）"),
+              pendingCard && h(
+                React.Fragment,
+                null,
+                cardCopied && h("div", { role: "status", style: { fontSize: 12 } },
+                  "已复制。请关闭此页面，在当前 DSH 问题卡片中粘贴并提交。"),
+                h("label", { htmlFor: "specsrelay-card-answer", style: { fontSize: 12 } },
+                  "DSH 正等待问题卡片：请只写下你确认的最终答案"),
+                h("textarea", {
+                  id: "specsrelay-card-answer",
+                  onChange: (event) => setCardAnswer(event.target.value),
+                  rows: 4,
+                  style: textAreaStyle,
+                  value: cardAnswer
+                }),
+                h(Button, {
+                  disabled: !cardAnswer.trim(),
+                  onClick: () => void navigator.clipboard.writeText(cardAnswer.trim())
+                    .then(() => { setError(""); setCardCopied(true); })
+                    .catch(() => setError("复制失败，请手动将确认的答案填入 DSH 问题卡片。")),
+                  variant: "outline"
+                }, "复制答案供问题卡片使用")
+              )
+            )
+          )
+        );
+      }
+
       function SpecsRelayDeepSeekView({
         loadDraft,
         loadProjectDraft,
+        draftClarification,
+        getPendingQuestion,
+        mode = "workbench",
         onClose,
         openSession,
         pickProject,
@@ -1063,6 +1318,7 @@ ${listLines(handoff.open_questions)}`;
         standalone = false,
         useSessions
       }) {
+        const [viewMode, setViewMode] = useState(mode);
         const [busy, setBusy] = useState("");
         const [browserState, setBrowserState] = useState("starting");
         const [compactLayout, setCompactLayout] = useState(false);
@@ -1144,6 +1400,7 @@ ${listLines(handoff.open_questions)}`;
             )
         );
         const targetShouldPrepare = Boolean(
+          viewMode !== "clarification" &&
           projectPath &&
             summary?.ready_for_execution === true &&
             (!Array.isArray(summary.open_questions) ||
@@ -1167,6 +1424,7 @@ ${listLines(handoff.open_questions)}`;
         }, [currentWorkspace]);
 
         useEffect(() => {
+          if (viewMode === "clarification") return;
           let cancelled = false;
           if (!targetShouldPrepare) {
             setPreparedTarget(null);
@@ -1199,6 +1457,7 @@ ${listLines(handoff.open_questions)}`;
         }, [prepareProject, projectPath, targetShouldPrepare]);
 
         useEffect(() => {
+          if (viewMode === "clarification") return;
           let cancelled = false;
           const restore = (value) => {
             const restored = normalizeWorkspace(value);
@@ -1232,9 +1491,10 @@ ${listLines(handoff.open_questions)}`;
           return () => {
             cancelled = true;
           };
-        }, [storageKey]);
+        }, [viewMode, storageKey]);
 
         useEffect(() => {
+          if (viewMode === "clarification") return;
           const controller = new AbortController();
           fetch(
             `${API}/organizer/status?sessionId=${encodeURIComponent(sessionId)}`,
@@ -1254,9 +1514,10 @@ ${listLines(handoff.open_questions)}`;
               }
             });
           return () => controller.abort();
-        }, [sessionId]);
+        }, [viewMode, sessionId]);
 
         useEffect(() => {
+          if (viewMode === "clarification") return;
           if (loadedStorageKey !== storageKey) return;
           try {
             localStorage.setItem(storageKey, JSON.stringify(workspaceState));
@@ -1271,6 +1532,7 @@ ${listLines(handoff.open_questions)}`;
           return () => window.clearTimeout(timer);
         }, [
           loadedStorageKey,
+          viewMode,
           storageKey,
           workspaceState
         ]);
@@ -1812,14 +2074,24 @@ ${listLines(handoff.open_questions)}`;
                         marginTop: 2
                       }
                     },
-                    "DeepSeek → DSH 需求交接"
+                    viewMode === "clarification"
+                      ? "DSH 产品问题 → DeepSeek → 当前会话"
+                      : "DeepSeek → DSH 需求交接"
                   )
                 ),
                 h(
                   "div",
                   { style: { display: "flex", gap: 6, marginLeft: "auto" } },
-                  h(Pill, { active: true }, "DSH 模型"),
-                  h(
+                  currentWorkspace && h(Button, {
+                    size: "sm",
+                    variant: "ghost",
+                    onClick: () => {
+                      setPanel("workbench");
+                      setViewMode((current) => current === "clarification" ? "workbench" : "clarification");
+                    }
+                  }, viewMode === "clarification" ? "返回交接" : "需求澄清"),
+                  viewMode !== "clarification" && h(Pill, { active: true }, "DSH 模型"),
+                  viewMode !== "clarification" && h(
                     Button,
                     {
                       icon: h(IconArchiveOutline20, { size: 16 }),
@@ -1844,7 +2116,16 @@ ${listLines(handoff.open_questions)}`;
                     padding: 14
                   }
                 },
-                panel === "inbox"
+                viewMode === "clarification"
+                  ? h(SpecsRelayClarificationPanel, {
+                      browserState,
+                      draftClarification,
+                      onComplete: closeView,
+                      pendingQuestion: getPendingQuestion?.(sessionId) || "",
+                      projectPath: currentWorkspace,
+                      sessionId
+                    })
+                  : panel === "inbox"
                   ? h(InboxPanel, {
                       items: sorted,
                       loadDraft,
@@ -2068,6 +2349,8 @@ ${listLines(handoff.open_questions)}`;
       function SpecsRelayShortcut({
         dshDesktop,
         wide,
+        draftClarification,
+        getPendingQuestion,
         loadDraft,
         loadProjectDraft,
         openSession,
@@ -2131,6 +2414,8 @@ ${listLines(handoff.open_questions)}`;
                 }
               },
               h(SpecsRelayDeepSeekView, {
+                draftClarification,
+                getPendingQuestion,
                 loadDraft,
                 loadProjectDraft,
                 onClose: () => setOpen(false),
@@ -2183,6 +2468,201 @@ ${listLines(handoff.open_questions)}`;
         );
       }
 
+      function SpecsRelayClarificationShortcut({
+        draftClarification,
+        getPendingQuestion,
+        loadDraft,
+        loadProjectDraft,
+        openSession,
+        pickProject,
+        prepareProject,
+        sessionId,
+        useSessions
+      }) {
+        const [open, setOpen] = useState(false);
+        const projectPath = useSessions((sessions) => sessions.byId[sessionId]?.cwd || "");
+        if (!sessionId || !projectPath) return null;
+        return h(
+          React.Fragment,
+          null,
+          h(Button, {
+            onClick: () => setOpen(true),
+            size: "sm",
+            title: "把当前会话的产品问题带到 DeepSeek 澄清，再返回本会话草稿",
+            variant: "toolbar"
+          }, "需求澄清"),
+          open && h(
+            "div",
+            {
+              "aria-label": "SpecsRelay 需求澄清",
+              style: {
+                background: "var(--dsw-alias-bg-base)",
+                inset: 0,
+                position: "fixed",
+                zIndex: 1000
+              }
+            },
+            h(SpecsRelayDeepSeekView, {
+              draftClarification,
+              getPendingQuestion,
+              loadDraft,
+              loadProjectDraft,
+              mode: "clarification",
+              onClose: () => setOpen(false),
+              openSession,
+              pickProject,
+              prepareProject,
+              sessionId,
+              standalone: true,
+              useSessions
+            })
+          )
+        );
+      }
+
+      function SpecsRelayContinuation({ sessionId, continueSession }) {
+        const [status, setStatus] = useState(null);
+        const [open, setOpen] = useState(false);
+        const [busy, setBusy] = useState(false);
+        const [sendingBusy, setSendingBusy] = useState(false);
+        const [error, setError] = useState("");
+        const started = useRef(false);
+        const sending = useRef(false);
+        const cancelled = useRef(false);
+        const controller = useRef(null);
+
+        useEffect(() => {
+          let active = true;
+          const refresh = async () => {
+            try {
+              const response = await fetch(
+                `${API}/continuation/status?sessionId=${encodeURIComponent(sessionId)}`,
+                { cache: "no-store" }
+              );
+              const data = await response.json();
+              if (active) setStatus(response.ok ? data : null);
+            } catch {
+              if (active) setStatus(null);
+            }
+          };
+          void refresh();
+          const timer = setInterval(() => void refresh(), 30000);
+          return () => {
+            active = false;
+            clearInterval(timer);
+          };
+        }, [sessionId]);
+
+        const onContinue = async () => {
+          if (started.current) return;
+          started.current = true;
+          cancelled.current = false;
+          setBusy(true);
+          setError("");
+          try {
+            controller.current = new AbortController();
+            const response = await fetch(`${API}/continuation/prepare`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ sessionId }),
+              signal: controller.current.signal
+            });
+            const prepared = await response.json();
+            if (cancelled.current) return;
+            if (!response.ok) {
+              throw new Error(prepared.error || `HTTP ${response.status}`);
+            }
+            sending.current = true;
+            setSendingBusy(true);
+            await continueSession(sessionId, prepared);
+            setOpen(false);
+          } catch (cause) {
+            if (!cancelled.current) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            }
+          } finally {
+            started.current = false;
+            sending.current = false;
+            setSendingBusy(false);
+            controller.current = null;
+            setBusy(false);
+          }
+        };
+
+        const onCancel = () => {
+          if (sending.current) return;
+          cancelled.current = true;
+          controller.current?.abort();
+          setOpen(false);
+        };
+
+        if (!status?.available) return null;
+        return h(
+          React.Fragment,
+          null,
+          h(
+            Button,
+            {
+              onClick: () => setOpen(true),
+              size: "sm",
+              title: status.recommended
+                ? status.recommendationReason === "compaction"
+                  ? "当前会话已自动压缩过上下文，可考虑在本轮完成后接续"
+                  : "当前上下文接近模型窗口，适合在本轮完成后接续"
+                : "在同一项目中创建新会话并接续当前工作",
+              variant: "toolbar"
+            },
+            status.recommended ? "建议接续" : "接续会话"
+          ),
+          open && h(
+            "div",
+            {
+              role: "dialog",
+              "aria-label": "接续到新会话",
+              style: {
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.65)",
+                display: "flex",
+                inset: 0,
+                justifyContent: "center",
+                position: "fixed",
+                zIndex: 1100
+              }
+            },
+            h(
+              "div",
+              {
+                style: {
+                  background: "var(--dsw-alias-bg-layer-1)",
+                  border: "1px solid var(--dsw-alias-border-l2)",
+                  borderRadius: 12,
+                  color: "var(--dsw-alias-label-primary)",
+                  maxWidth: 480,
+                  padding: 20,
+                  width: "calc(100% - 32px)"
+                }
+              },
+              h("h3", { style: { margin: "0 0 12px" } }, "接续到新会话"),
+              h("p", { style: { margin: "0 0 10px" } },
+                "确认后会整理当前会话，在同一项目创建新会话并发送接续材料。旧会话保持不变。"),
+              h("p", { style: { margin: "0 0 10px", overflowWrap: "anywhere" } },
+                `项目：${status.projectPath}`),
+              status.pressureRatio !== null && h(
+                "p",
+                { style: { margin: "0 0 10px" } },
+                `上下文估算：${Math.round(status.pressureRatio * 100)}%（仅供参考）`
+              ),
+              error && h("p", { role: "alert", style: { color: "var(--dsw-alias-state-error-primary)" } }, error),
+              h("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+                h(Button, { disabled: sendingBusy, onClick: onCancel, variant: "ghost" }, "取消"),
+                h(Button, { disabled: busy, onClick: () => void onContinue() },
+                  busy ? "正在整理并接续…" : "确认并接续")
+              )
+            )
+          )
+        );
+      }
+
       const inject = ["slots", "sessions", "conversation", "workspaces"];
 
       function apply(ctx) {
@@ -2192,6 +2672,7 @@ ${listLines(handoff.open_questions)}`;
         const isDshDesktop = ["compatibility", "advanced"].includes(
           dshDesktopMode
         ) && ["darwin", "win32", "linux"].includes(dshDesktopPlatform);
+        const continuationAttempts = new Map();
         const loadCurrent = (item) => {
           const sessionId = ctx.sessions.list.getSnapshot().current;
           if (!sessionId) {
@@ -2222,6 +2703,9 @@ ${listLines(handoff.open_questions)}`;
                   order: -10,
                   inject: () => ({
                     dshDesktop: isDshDesktop,
+                    draftClarification: (sourceId, projectPath, prompt) =>
+                      loadClarificationDraft(ctx, sourceId, projectPath, prompt),
+                    getPendingQuestion: (sourceId) => pendingQuestionText(ctx, sourceId),
                     loadDraft: loadCurrent,
                     loadProjectDraft: loadProject,
                     openSession,
@@ -2250,6 +2734,106 @@ ${listLines(handoff.open_questions)}`;
               )
             ),
           "specsrelay-deepseek: composer shortcut"
+        );
+        ctx.effect(
+          () =>
+            ctx.slots.inject("conversation.input.right", () =>
+              ctx.slots.register(
+                {
+                  name: "conversation.input.right",
+                  id: "specsrelay-continuation",
+                  order: 41,
+                  inject: (sessionId) => ({
+                    sessionId,
+                    continueSession: async (sourceId, prepared) => {
+                      const prior = continuationAttempts.get(sourceId);
+                      if (prior) {
+                        ctx.sessions.open(prior.targetId);
+                        throw new Error("已创建接续会话。请先在新会话核对发送状态，避免重复提交。");
+                      }
+                      const latestResponse = await fetch(
+                        `${API}/continuation/status?sessionId=${encodeURIComponent(sourceId)}`,
+                        { cache: "no-store" }
+                      );
+                      const latest = await latestResponse.json();
+                      if (
+                        !latestResponse.ok || !latest.available ||
+                        latest.sourceFingerprint !== prepared.sourceFingerprint
+                      ) {
+                        throw new Error("当前会话在整理后发生了变化，请重新接续。");
+                      }
+                      const sessions = ctx.sessions.list.getSnapshot();
+                      const source = sessions.byId[sourceId];
+                      const jobs = sessions.jobsBySession[sourceId] || [];
+                      if (!source || source.running || jobs.length > 0) {
+                        throw new Error("当前会话仍有任务在运行，请稍后接续。");
+                      }
+                      if (normalizedPath(source.cwd) !== normalizedPath(prepared.projectPath)) {
+                        throw new Error("项目目录已变化，请重新接续。");
+                      }
+                      let workspace = ctx.workspaces.list.getSnapshot().items.find(
+                        (candidate) =>
+                          normalizedPath(candidate.path) === normalizedPath(prepared.projectPath)
+                      );
+                      if (!workspace) {
+                        workspace = await ctx.workspaces.create({ path: prepared.projectPath });
+                      }
+                      const newId = await ctx.sessions.create({ workspaceId: workspace.workspaceId });
+                      continuationAttempts.set(sourceId, { targetId: newId });
+                      const binding = ctx.sessions.binding(newId);
+                      if (!binding?.session) {
+                        ctx.sessions.open(newId);
+                        throw new Error("新会话已创建，但尚未准备好接收任务。请检查会话列表。");
+                      }
+                      let result;
+                      try {
+                        result = await binding.session.prompt(
+                          [{ type: "text", text: prepared.prompt }],
+                          "queue"
+                        );
+                      } catch {
+                        ctx.sessions.open(newId);
+                        throw new Error("新会话已创建，发送结果暂不确定。请先核对新会话，避免重复提交。");
+                      }
+                      if (!result.ok) {
+                        const scope = ctx.sessions.scope(newId);
+                        if (scope) ctx.conversation.input.for(scope).setDraft(prepared.prompt);
+                        ctx.sessions.open(newId);
+                        throw new Error("新会话已创建，但未能发送。需求已保留在草稿中，请核对后手动发送。");
+                      }
+                      ctx.sessions.open(newId);
+                    }
+                  })
+                },
+                SpecsRelayContinuation
+              )
+            ),
+          "specsrelay-deepseek: session continuation"
+        );
+        ctx.effect(
+          () =>
+            ctx.slots.inject("conversation.input.right", () =>
+              ctx.slots.register(
+                {
+                  name: "conversation.input.right",
+                  id: "specsrelay-clarification",
+                  order: 42,
+                  inject: (sessionId) => ({
+                    sessionId,
+                    draftClarification: (sourceId, projectPath, prompt) =>
+                      loadClarificationDraft(ctx, sourceId, projectPath, prompt),
+                    getPendingQuestion: (sourceId) => pendingQuestionText(ctx, sourceId),
+                    loadDraft: loadCurrent,
+                    loadProjectDraft: loadProject,
+                    openSession,
+                    pickProject,
+                    prepareProject
+                  })
+                },
+                SpecsRelayClarificationShortcut
+              )
+            ),
+          "specsrelay-deepseek: bidirectional clarification"
         );
       }
 

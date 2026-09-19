@@ -4,7 +4,7 @@
 
 SpecsRelay for DeepSeek is an open-source requirement handoff plugin for DSH desktop clients. It opens the real, sign-in-capable DeepSeek website inside the desktop application and keeps a requirement handoff panel beside it. With one action, SpecsRelay captures the complete current multi-turn conversation, uses the model already configured in DSH and the bundled requirement-analysis Skill to create an actionable requirement, then sends the confirmed result to a selected project and starts its Agent.
 
-SpecsRelay is not another chat client and does not ask users to change how they discuss a solution in DeepSeek. Clarification appears only when an unresolved decision would materially affect implementation; clear requirements proceed directly to delivery. The workflow requires no browser extension, manual copy and paste, Docker service, third-party platform, or second API Key entry inside SpecsRelay.
+SpecsRelay is not another chat client and does not ask users to change how they discuss a solution in DeepSeek. Clarification appears only when an unresolved decision would materially affect implementation; clear requirements proceed directly to delivery. Initial handoff and the optional in-task clarification loop require no browser extension, manual copy and paste, Docker service, third-party platform, or second API Key entry inside SpecsRelay.
 
 _This is an independently maintained community project. It is not an official DeepSeek product or a built-in feature of any desktop client._
 
@@ -41,6 +41,20 @@ SpecsRelay is therefore neither a new model platform nor a general-purpose web s
 3. Clarification appears only when a missing decision would affect the result. This step is skipped when the requirement is already clear.
 4. Select the target project and confirm delivery. SpecsRelay sends the final requirement to that project's DSH session and starts the Agent.
 
+### Continue a DSH session
+
+During a longer DSH task, select **Continue session** in the composer. SpecsRelay estimates context pressure when the current Agent is idle. Near 80% of the configured model's reported context window, or after it observes an automatic context compaction, the button changes to **Continuation suggested**. These are only suggestions: they never create a session automatically, and manual continuation remains available when reliable window metadata is unavailable.
+
+After confirmation, SpecsRelay summarizes the current session's available conversation into goals, confirmed decisions, progress, and facts to verify. It creates a separate session in the same project and sends the handoff. The receiving Agent first checks the project and uncommitted changes read-only; it asks about conflicts or unverifiable facts before continuing the next clear step. The original session is neither changed nor archived, and the summary does not replace inspection of the actual project.
+
+### Clarify a product question during implementation
+
+When DSH reaches a product decision that needs your input, select **Clarify requirement** in the current session's composer. SpecsRelay suggests an editable question. Review it, open the original DeepSeek conversation on the left, and select **Start clarification**; SpecsRelay sends the question to that original conversation automatically. After discussing and explicitly confirming your choice, select **Read new discussion**. SpecsRelay brings back only messages added after clarification began. Review them, then place the result in a draft in the **same DSH session**. The Agent continues only after you send that draft yourself.
+
+This optional flow does not create a subagent or a new DSH session, and it does not treat DeepSeek suggestions as your decisions. If the decision is still open, DSH should ask you again. SpecsRelay refuses a return from a different DeepSeek conversation, edited earlier messages, or a different DSH project.
+
+If DSH is waiting on an `ask_user_question` card, its normal composer is temporarily unavailable. Open **Clarify requirement** from the SpecsRelay sidebar, complete the discussion, then copy only your confirmed final answer back into the original session's question card. SpecsRelay does not submit the card for you. Once the card is resolved, normal draft return is available again.
+
 ## Highlights
 
 | Capability | What it provides |
@@ -50,6 +64,7 @@ SpecsRelay is therefore neither a new model platform nor a general-purpose web s
 | Requirement organization | Extracts goals, constraints, confirmed decisions, and acceptance criteria, asking only material questions |
 | Reuses the DSH model | Uses the model already available in the desktop client instead of requesting another Key in SpecsRelay |
 | Project-aware delivery | Select a project, review the final requirement, then send it directly and start the corresponding Agent |
+| In-task clarification loop | Discuss a DSH product question in the original DeepSeek conversation and return only new turns to the original DSH session draft |
 | One installation entry | The same bundle and command adapt to several community DSH desktop clients |
 
 ## Quick install
@@ -111,10 +126,12 @@ See [Desktop client adapters](docs/desktop-client-adapters.en.md) for detection,
 - The DeepSeek pane is a real, sandboxed `WebContentsView`, not a screenshot or remote-control stream.
 - An isolated native session preserves the DeepSeek sign-in. SpecsRelay does not read or store account passwords.
 - Node integration and preload access remain disabled; main-frame navigation is limited to `https://chat.deepseek.com`.
-- DOM capture runs only after the user selects **Organize current conversation**. Loading, showing, and resizing the page do not capture content.
+- DOM capture runs only after the user selects **Organize current conversation**, **Start clarification**, or **Read new discussion**. Loading, showing, and resizing the page do not capture content.
 - The current conversation, requirement draft, recovery history, and execution snapshots are stored in SpecsRelay's local DSH-host data directory; browser storage remains a compatibility fallback. The DSH-configured model then processes the requirement, and clarification and revision use the same model path.
 - The `specsrelay-requirement-analysis` Skill is built into the workflow and does not require separate installation or configuration.
 - **Send to DSH and start** submits the requirement through DSH's native input path. Restoring a historical snapshot restores only the draft and never starts another Agent turn.
+- **Continue session** prepares and sends only after user confirmation. An uncertain send is not retried automatically, avoiding duplicate work.
+- **Clarify requirement** automatically sends only a user-reviewed question to the currently open original DeepSeek conversation; return capture uses only new turns and writes only to the original DSH session's empty draft. It never submits the DSH draft automatically or overwrites an existing draft.
 
 ## Local development
 

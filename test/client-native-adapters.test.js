@@ -19,3 +19,13 @@ test("bottom-aligns the footer shortcut only in official DSH Desktop", async () 
   assert.match(client, /dshDesktop: isDshDesktop/);
   assert.match(client, /order: -10/);
 });
+
+test("continuation uses a fresh session in the same workspace only after confirmation", async () => {
+  const client = await readFile(new URL("../client-native.js", import.meta.url), "utf8");
+
+  assert.match(client, /确认并接续/);
+  assert.match(client, /ctx\.sessions\.create\(\{ workspaceId: workspace\.workspaceId \}\)/);
+  assert.match(client, /binding\.session\.prompt\(/);
+  assert.match(client, /continuationAttempts\.set\(sourceId, \{ targetId: newId \}\)/);
+  assert.match(client, /ctx\.sessions\.open\(newId\)/);
+});
