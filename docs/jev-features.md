@@ -17,7 +17,7 @@ TYPESAFE_API_KEY=你的_TypeSafe_API_Key
 
 不要将这个本地配置文件提交到项目仓库。`SPECSRELAY_JEV_API_KEY` 仍可作为 Key 的兼容别名。
 
-> **开启前确认：**筛选会向 TypeSafe 发送对话原文片段，累计可能涉及大部分对话，包括用户内容。密钥遮蔽不能移除所有敏感信息，请只对允许发送给 TypeSafe 的对话启用。
+> **开启前确认**：筛选会向 TypeSafe 发送对话原文片段，累计可能涉及大部分对话，包括用户内容。密钥遮蔽不能移除所有敏感信息，请只对允许发送给 TypeSafe 的对话启用。
 
 把 `SPECSRELAY_JEV_LONG_CONTEXT` 改为 `0` 或移除即可关闭。
 
