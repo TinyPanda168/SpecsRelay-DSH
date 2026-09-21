@@ -19,7 +19,7 @@ async function harness() {
   runInNewContext(source, {
     URLSearchParams,
     encodeURIComponent,
-    window: { location: { search: "" } },
+    window: { location: { search: "?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin" } },
     globalThis: { __ModuleLoader__: { load(definition) {
       plugin = definition.factory((name) => name === "react"
         ? { createElement() {}, useEffect() {}, useMemo() {}, useRef() {}, useState() {}, useSyncExternalStore() {} }
@@ -114,8 +114,12 @@ test("older clients without readable draft state fail safely", async () => {
 
 test("clarification sends the question back to DeepSeek without a copy step", async () => {
   const source = await readFile(new URL("../client-native.js", import.meta.url), "utf8");
-  assert.match(source, /正在发送到原对话/);
-  assert.match(source, /问题已自动发送/);
-  assert.doesNotMatch(source, /复制问题/);
-  assert.doesNotMatch(source, /复制下方问题到左侧 DeepSeek/);
+  const start = source.indexOf("function SpecsRelayClarificationPanel(");
+  const end = source.indexOf("function SpecsRelayDeepSeekView(", start);
+  assert.ok(start >= 0 && end > start, "automatic clarification panel is present");
+  const panel = source.slice(start, end);
+  assert.match(panel, /正在发送到原对话/);
+  assert.match(panel, /问题已自动发送/);
+  assert.doesNotMatch(panel, /复制问题/);
+  assert.doesNotMatch(panel, /复制下方问题到左侧 DeepSeek/);
 });

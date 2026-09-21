@@ -28,17 +28,24 @@ import {
   suggestClarificationQuestion
 } from "./lib/clarification.js";
 import { createSwitchableDesktopBrowserHost } from "./lib/native-browser.js";
-import { createProcessDesktopWebPanels } from "./lib/process-web-panels.js";
 import {
   createWorkspaceStore,
   MAX_WORKSPACE_STATE_BYTES
 } from "./lib/workspace-store.js";
+import {
+  sameAuxiliaryRoute,
+  selectJevAuxiliaryRoute
+} from "./lib/jev-router.js";
+import {
+  EVIDENCE_PLAN_SYSTEM,
+  enhanceLongConversation
+} from "./lib/long-conversation.js";
 
 export const name = "specsrelay-dsh-deepseek";
 export const inject = ["agents", "llm", "skills", "webServer"];
 
 export const PROTOCOL_VERSION = 1;
-export const PLUGIN_VERSION = "0.9.0";
+export const PLUGIN_VERSION = "0.10.0";
 
 const MAX_INGRESS_BODY_BYTES = 320000;
 const MAX_CAPTURE_INGRESS_BODY_BYTES = 520000;
@@ -499,8 +506,7 @@ function resolveOrganizerRoute(ctx, sessionId) {
     };
   }
 
-  // Configurable-route hosts (Pilot Harness) register the routes the user
-  // configured; prefer the active session's selected route when it is one.
+  // Without the primary route, use the active session's configured provider.
   if (typeof current?.provider === "string" && providerIds.has(current.provider)) {
     return {
       provider: current.provider,
@@ -570,7 +576,7 @@ async function generateOrganizerOutput(
       model: route.model,
       messages,
       system,
-      reasoningEffort: "off",
+      reasoningEffort: route.reasoningEffort ?? "off",
       maxTokens,
       temperature: 0.1,
       signal
@@ -622,6 +628,46 @@ async function generateOrganizerOutput(
     return output;
   }
   throw new Error(`${taskLabel}没有返回可用文本。`);
+}
+
+async function generateOrganizerOutputWithFallback(
+  ctx,
+  route,
+  fallbackRoute,
+  messages,
+  signal,
+  system = ORGANIZER_SYSTEM_PROMPT,
+  tokenBudgets = ORGANIZER_OUTPUT_TOKEN_BUDGETS,
+  taskLabel = "DeepSeek 需求总结"
+) {
+  try {
+    return {
+      output: await generateOrganizerOutput(
+        ctx,
+        route,
+        messages,
+        signal,
+        system,
+        tokenBudgets,
+        taskLabel
+      ),
+      route
+    };
+  } catch (error) {
+    if (sameAuxiliaryRoute(route, fallbackRoute)) throw error;
+    return {
+      output: await generateOrganizerOutput(
+        ctx,
+        fallbackRoute,
+        messages,
+        signal,
+        system,
+        tokenBudgets,
+        taskLabel
+      ),
+      route: fallbackRoute
+    };
+  }
 }
 
 async function skillAugmentedSystem(ctx, signal, baseSystem) {
@@ -740,8 +786,10 @@ ${revisionInstruction.replaceAll(
 }
 
 /**
- * Summarize one user-imported DeepSeek conversation through DSH's configured
- * official DeepSeek route without adding a hidden turn to the active session.
+ * Organize an imported DeepSeek conversation through DSH's configured route.
+ * Optional long-conversation enhancement plans and selects original evidence
+ * inside this operation; a failed enhancement uses the complete source.
+ * Auxiliary calls do not add hidden turns to the active session.
  *
  * @param {object} ctx DSH context exposing agents, LLM, and skill services.
  * @param {{ sessionId: string, text: string, previousHandoff?: object, clarifications?: object[], revisionInstruction?: string }} request Imported context request.
@@ -754,26 +802,53 @@ export async function organizeImportedContext(ctx, request) {
     "Imported conversation",
     MAX_IMPORTED_CONTEXT_CHARS
   );
-  const route = resolveOrganizerRoute(ctx, sessionId);
+  const fallbackRoute = resolveOrganizerRoute(ctx, sessionId);
   const signal = AbortSignal.timeout(ORGANIZER_TIMEOUT_MS);
   const skillSystem = await skillAugmentedSystem(
     ctx,
     signal,
     ORGANIZER_SYSTEM_PROMPT
   );
-  const sourcePrompt = buildOrganizerSourcePrompt(importedText, request);
+  // Validate clarifications before any optional external evaluation.
+  const fullSourcePrompt = buildOrganizerSourcePrompt(importedText, request);
+  const evidence = await enhanceLongConversation(ctx, importedText, {
+    signal,
+    plan: (excerpt, planSignal) => generateOrganizerOutput(
+      ctx,
+      fallbackRoute,
+      [message("user", JSON.stringify({
+        opening_and_closing_excerpt: excerpt,
+        previous_handoff: request?.previousHandoff,
+        user_clarifications: request?.clarifications,
+        revision_instruction: request?.revisionInstruction
+      }), {
+        kind: "plugin",
+        plugin: name
+      })],
+      planSignal,
+      EVIDENCE_PLAN_SYSTEM,
+      [2048],
+      "需求证据规划"
+    )
+  });
+  const sourcePrompt = evidence === importedText
+    ? fullSourcePrompt
+    : buildOrganizerSourcePrompt(evidence, request);
   const sourceMessage = message("user", sourcePrompt, {
     kind: "plugin",
     plugin: name
   });
-  const firstOutput = await generateOrganizerOutput(
+  let route = fallbackRoute;
+  const firstResult = await generateOrganizerOutputWithFallback(
     ctx,
     route,
+    fallbackRoute,
     [sourceMessage],
     signal,
     skillSystem.system
   );
-  let parsed = parseHandoffResponse(firstOutput);
+  route = firstResult.route;
+  let parsed = parseHandoffResponse(firstResult.output);
 
   if (parsed.errors.length > 0 && !unresolvedHandoffErrors(parsed)) {
     const repairable = parsed.errors.every(isRepairableHandoffError);
@@ -785,19 +860,21 @@ export async function organizeImportedContext(ctx, request) {
       buildHandoffRepairPrompt(parsed.errors),
       { kind: "plugin", plugin: name }
     );
-    const priorAssistant = message("assistant", firstOutput, {
+    const priorAssistant = message("assistant", firstResult.output, {
       kind: "model",
       provider: route.provider,
       model: route.model
     });
-    const repairedOutput = await generateOrganizerOutput(
+    const repairedResult = await generateOrganizerOutputWithFallback(
       ctx,
       route,
+      fallbackRoute,
       [sourceMessage, priorAssistant, repairMessage],
       signal,
       skillSystem.system
     );
-    parsed = parseHandoffResponse(repairedOutput);
+    route = repairedResult.route;
+    parsed = parseHandoffResponse(repairedResult.output);
   }
 
   if (
@@ -895,7 +972,11 @@ export async function prepareContinuation(ctx, request) {
   const sessionId = boundedString(request?.sessionId, "Session id", 160);
   const { agent, projectPath } = continuationAgent(ctx, sessionId);
   const sourceTranscript = continuationTranscript(agent.session.deriveMessages());
-  const route = resolveContinuationRoute(ctx, agent, sessionId);
+  const fallbackRoute = resolveContinuationRoute(ctx, agent, sessionId);
+  let route = (await selectJevAuxiliaryRoute(ctx, fallbackRoute, {
+    task: "整理 DSH 长会话的接续材料",
+    text: sourceTranscript
+  })).route;
   let capacity = null;
   try {
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
@@ -917,15 +998,18 @@ export async function prepareContinuation(ctx, request) {
   let extracts = [];
   for (const [index, chunk] of chunks.entries()) {
     const source = `从以下 DSH 会话片段提取可核实的接续事实。这是第 ${index + 1}/${chunks.length} 段；不要假装已经看到其他片段。只返回指定 JSON。\n\n<source_transcript>\n${chunk.replaceAll("</source_transcript>", "[escaped transcript boundary]")}\n</source_transcript>`;
-    const output = await generateOrganizerOutput(
+    const result = await generateOrganizerOutputWithFallback(
       ctx,
       route,
+      fallbackRoute,
       [message("user", source, { kind: "plugin", plugin: name })],
       signal,
       CONTINUATION_SYSTEM_PROMPT,
       tokenBudgets,
       "接续整理"
     );
+    route = result.route;
+    const output = result.output;
     if (output.length > Math.floor(chunkSize / 3)) {
       throw new Error("接续摘要过长，无法安全合并，请缩短当前会话后重试。");
     }
@@ -943,15 +1027,18 @@ export async function prepareContinuation(ctx, request) {
       if (source.length > chunkSize) {
         throw new Error("接续摘录超过当前模型可处理范围，请缩短当前会话后重试。");
       }
-      const output = await generateOrganizerOutput(
+      const result = await generateOrganizerOutputWithFallback(
         ctx,
         route,
+        fallbackRoute,
         [message("user", source, { kind: "plugin", plugin: name })],
         signal,
         CONTINUATION_SYSTEM_PROMPT,
         tokenBudgets,
         "接续整理"
       );
+      route = result.route;
+      const output = result.output;
       if (output.length > Math.floor(chunkSize / 3)) {
         throw new Error("接续摘要过长，无法安全合并，请缩短当前会话后重试。");
       }
@@ -1383,10 +1470,7 @@ export async function apply(ctx) {
     }),
     "specsrelay-deepseek: automatic compaction signal"
   );
-  const processWebPanels = ctx.get("desktopWebPanels")
-    ? undefined
-    : createProcessDesktopWebPanels();
-  const initialWebPanels = ctx.get("desktopWebPanels") ?? processWebPanels;
+  const initialWebPanels = ctx.get("desktopWebPanels");
   const browser = createSwitchableDesktopBrowserHost(
     initialWebPanels,
     initialWebPanels ? undefined : () => ctx.get("desktopWebPanels")
@@ -1410,10 +1494,7 @@ export async function apply(ctx) {
         workspaces,
         autoCompactedSessions
       );
-      return async () => {
-        await disposeRoutes();
-        await processWebPanels?.dispose();
-      };
+      return disposeRoutes;
     },
     "specsrelay-deepseek: WebUI routes"
   );

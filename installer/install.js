@@ -22,26 +22,6 @@ export function installCommand(installation, packageSpec = DEFAULT_PACKAGE_SPEC)
   };
 }
 
-export function profileDependencyCommand(installation) {
-  if (installation.profileDependencies.length === 0) return undefined;
-  return {
-    command: installation.executable,
-    args: [
-      installation.dshBin,
-      "plugin",
-      "--profile",
-      installation.profile,
-      "add",
-      ...installation.profileDependencies.map((dependency) => dependency.packageSpec)
-    ],
-    environment: {
-      ...process.env,
-      DSH_HOME: installation.dshHome,
-      ...(installation.electronRunAsNode ? { ELECTRON_RUN_AS_NODE: "1" } : {})
-    }
-  };
-}
-
 function runCommand(command, installation, { spawnProcess = spawn } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(command.command, command.args, {
@@ -63,15 +43,13 @@ function runCommand(command, installation, { spawnProcess = spawn } = {}) {
 
 export async function installOne(installation, packageSpec, options = {}) {
   await runCommand(installCommand(installation, packageSpec), installation, options);
-  const dependencyCommand = profileDependencyCommand(installation);
-  if (dependencyCommand) await runCommand(dependencyCommand, installation, options);
 }
 
 export async function installDetected(options = {}) {
   const installations = detectHostInstallations(options);
   if (installations.length === 0) {
     throw new Error(
-      "没有检测到支持的 DSH 桌面客户端。可用 --app 指定应用路径，或先安装支持的客户端。"
+      "没有检测到 DSH Desktop。SpecsRelay 仅支持 anywhere-labs DSH Desktop；可用 --app 指定其应用路径。"
     );
   }
   const completed = [];

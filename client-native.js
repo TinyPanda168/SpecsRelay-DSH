@@ -33,6 +33,8 @@
       const MAX_REQUIREMENT_SOURCE_CHARS = 500000;
       const MAX_WORKSPACE_HISTORY = 3;
       const STATUS_MESSAGE_DURATION_MS = 4000;
+      // DSH Desktop enhanced mode reserves a 32px native caption row on macOS and Windows.
+      const DSH_ENHANCED_TITLEBAR_HEIGHT = 32;
       const WORKSPACE_STORAGE_PREFIX = "specsrelay.dsh.workspace.v1:";
       const SPECSRELAY_ICON = "data:image/png;base64,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";
       const listeners = new Set();
@@ -578,14 +580,32 @@ ${listLines(handoff.open_questions)}`;
 
       function HandoffSummaryPanel({
         answers,
+        browserReady,
         busy,
         handoff,
         onAnswer,
-        onClarify
+        onClarify,
+        onRecapture
       }) {
+        const [copyStatus, setCopyStatus] = useState("");
+        useEffect(() => setCopyStatus(""), [handoff]);
         const questions = Array.isArray(handoff.open_questions)
           ? handoff.open_questions
           : [];
+        const copyQuestions = async () => {
+          if (busy || questions.length === 0) return;
+          const prompt = [
+            "请基于我们前面的完整对话，继续帮我澄清以下问题。请逐条与我确认，不要替我假设答案：",
+            "",
+            ...questions.map((question, index) => `${index + 1}. ${question}`)
+          ].join("\n");
+          try {
+            await navigator.clipboard.writeText(prompt);
+            setCopyStatus("copied");
+          } catch {
+            setCopyStatus("error");
+          }
+        };
         return h(
           React.Fragment,
           null,
@@ -607,8 +627,33 @@ ${listLines(handoff.open_questions)}`;
               h(
                 "p",
                 { style: { color: "var(--dsw-alias-text-secondary)", fontSize: 12, lineHeight: 1.5, margin: 0 } },
-                "以下问题会影响需求范围或产品行为。回答完整后，SpecsRelay 会继续整理。"
+                "以下问题会影响需求范围或产品行为。你可以回到左侧 DeepSeek 继续讨论，也可以直接在这里回答。"
               ),
+              h(
+                "div",
+                { style: { display: "grid", gap: 8 } },
+                h("strong", { style: { fontSize: 12 } }, "回到 DeepSeek 讨论"),
+                h("p", {
+                  style: { color: "var(--dsw-alias-text-secondary)", fontSize: 12, lineHeight: 1.5, margin: 0 }
+                }, "复制问题后，粘贴到左侧原对话继续讨论；确认决定后，再重新获取并整理。"),
+                h(Button, {
+                  disabled: Boolean(busy),
+                  variant: "secondary",
+                  onClick: copyQuestions
+                }, copyStatus === "copied" ? "已复制问题" : "复制问题，回网页讨论"),
+                h(Button, {
+                  disabled: Boolean(busy) || !browserReady,
+                  variant: "ghost",
+                  onClick: onRecapture
+                }, "重新获取并整理"),
+                copyStatus && h("p", {
+                  role: copyStatus === "error" ? "alert" : "status",
+                  style: { fontSize: 12, lineHeight: 1.5, margin: 0 }
+                }, copyStatus === "error"
+                  ? "复制失败，请手动复制下面的问题，粘贴到左侧原对话继续讨论。"
+                  : "已复制。请粘贴到左侧原对话；讨论确认后，点击“重新获取并整理”。")
+              ),
+              h("strong", { style: { fontSize: 12 } }, "直接在这里回答"),
               ...questions.map((question, index) =>
                 h(
                   "label",
@@ -1305,6 +1350,7 @@ ${listLines(handoff.open_questions)}`;
       }
 
       function SpecsRelayDeepSeekView({
+        dshDesktop,
         loadDraft,
         loadProjectDraft,
         draftClarification,
@@ -1410,6 +1456,10 @@ ${listLines(handoff.open_questions)}`;
         );
 
         useEffect(() => {
+          if (dshDesktop) {
+            setCompactLayout(false);
+            return;
+          }
           const node = viewRef.current;
           if (!node || typeof ResizeObserver !== "function") return;
           const observer = new ResizeObserver(([entry]) => {
@@ -1417,7 +1467,7 @@ ${listLines(handoff.open_questions)}`;
           });
           observer.observe(node);
           return () => observer.disconnect();
-        }, []);
+        }, [dshDesktop]);
 
         useEffect(() => {
           setProjectPath(currentWorkspace);
@@ -1889,12 +1939,15 @@ ${listLines(handoff.open_questions)}`;
             "aria-label": "SpecsRelay DeepSeek 网页",
             ref: viewRef,
             style: {
+              boxSizing: dshDesktop ? "border-box" : undefined,
               color: "var(--dsw-alias-text-primary)",
               display: "flex",
               flexDirection: "column",
               gap: 10,
-              height: standalone ? "100vh" : "calc(100vh - 190px)",
-              minHeight: 520,
+              height: standalone
+                ? (dshDesktop ? "100%" : "100vh")
+                : "calc(100vh - 190px)",
+              minHeight: dshDesktop && standalone ? 0 : 520,
               minWidth: 0,
               padding: standalone ? 16 : "0 16px 16px"
             }
@@ -1996,7 +2049,9 @@ ${listLines(handoff.open_questions)}`;
                 gap: 10,
                 gridTemplateColumns: compactLayout
                   ? "minmax(0, 1fr)"
-                  : "minmax(0, 1fr) minmax(440px, 510px)",
+                  : dshDesktop
+                    ? "minmax(0, 1fr) clamp(320px, 38%, 480px)"
+                    : "minmax(0, 1fr) minmax(440px, 510px)",
                 minHeight: 0
               }
             },
@@ -2026,7 +2081,7 @@ ${listLines(handoff.open_questions)}`;
                     width: "100%"
                   }
                 },
-                browserState === "error" ? "请使用支持 SpecsRelay 的 DSH 桌面客户端" : "正在准备 DeepSeek…"
+                browserState === "error" ? "DeepSeek 网页启动失败，请查看错误详情后重试" : "正在准备 DeepSeek…"
               )
             ),
             h(
@@ -2050,6 +2105,7 @@ ${listLines(handoff.open_questions)}`;
                     alignItems: "center",
                     borderBottom: "1px solid var(--dsw-alias-border-subtle)",
                     display: "flex",
+                    flexWrap: dshDesktop ? "wrap" : undefined,
                     gap: 10,
                     padding: "12px 14px"
                   }
@@ -2081,7 +2137,13 @@ ${listLines(handoff.open_questions)}`;
                 ),
                 h(
                   "div",
-                  { style: { display: "flex", gap: 6, marginLeft: "auto" } },
+                  { style: {
+                    display: "flex",
+                    flexShrink: dshDesktop ? 0 : undefined,
+                    gap: 6,
+                    marginLeft: "auto",
+                    whiteSpace: dshDesktop ? "nowrap" : undefined
+                  } },
                   currentWorkspace && h(Button, {
                     size: "sm",
                     variant: "ghost",
@@ -2112,6 +2174,7 @@ ${listLines(handoff.open_questions)}`;
                     flex: "1 1 auto",
                     gap: 12,
                     gridAutoRows: "max-content",
+                    gridTemplateColumns: dshDesktop ? "minmax(0, 1fr)" : undefined,
                     overflow: "auto",
                     padding: 14
                   }
@@ -2289,6 +2352,7 @@ ${listLines(handoff.open_questions)}`;
                         summary &&
                           h(HandoffSummaryPanel, {
                             answers,
+                            browserReady: browserState === "ready",
                             busy,
                             handoff: summary,
                             onAnswer: (index, value) =>
@@ -2297,7 +2361,8 @@ ${listLines(handoff.open_questions)}`;
                                 next[index] = value;
                                 return next;
                               }),
-                            onClarify: () => void clarify()
+                            onClarify: () => void clarify(),
+                            onRecapture: captureCurrentConversation
                           })
                       ),
                       h(DeliveryStep, {
@@ -2346,8 +2411,25 @@ ${listLines(handoff.open_questions)}`;
         );
       }
 
+      function SpecsRelayCaptionBackground({ height }) {
+        if (!height) return null;
+        return h("div", {
+          "aria-hidden": true,
+          style: {
+            background: "var(--dsw-alias-bg-base)",
+            height,
+            left: 0,
+            pointerEvents: "none",
+            position: "fixed",
+            right: 0,
+            top: 0
+          }
+        });
+      }
+
       function SpecsRelayShortcut({
         dshDesktop,
+        desktopTopInset = 0,
         wide,
         draftClarification,
         getPendingQuestion,
@@ -2410,10 +2492,12 @@ ${listLines(handoff.open_questions)}`;
                   background: "var(--dsw-alias-bg-base)",
                   inset: 0,
                   position: "fixed",
+                  top: desktopTopInset,
                   zIndex: 1000
                 }
               },
               h(SpecsRelayDeepSeekView, {
+                dshDesktop,
                 draftClarification,
                 getPendingQuestion,
                 loadDraft,
@@ -2425,7 +2509,8 @@ ${listLines(handoff.open_questions)}`;
                 sessionId,
                 standalone: true,
                 useSessions
-              })
+              }),
+              h(SpecsRelayCaptionBackground, { height: desktopTopInset })
             )
         );
       }
@@ -2469,6 +2554,8 @@ ${listLines(handoff.open_questions)}`;
       }
 
       function SpecsRelayClarificationShortcut({
+        dshDesktop,
+        desktopTopInset = 0,
         draftClarification,
         getPendingQuestion,
         loadDraft,
@@ -2499,10 +2586,12 @@ ${listLines(handoff.open_questions)}`;
                 background: "var(--dsw-alias-bg-base)",
                 inset: 0,
                 position: "fixed",
+                top: desktopTopInset,
                 zIndex: 1000
               }
             },
             h(SpecsRelayDeepSeekView, {
+              dshDesktop,
               draftClarification,
               getPendingQuestion,
               loadDraft,
@@ -2515,7 +2604,8 @@ ${listLines(handoff.open_questions)}`;
               sessionId,
               standalone: true,
               useSessions
-            })
+            }),
+            h(SpecsRelayCaptionBackground, { height: desktopTopInset })
           )
         );
       }
@@ -2669,9 +2759,14 @@ ${listLines(handoff.open_questions)}`;
         const locationParams = new URLSearchParams(window.location.search);
         const dshDesktopMode = locationParams.get("dsh-desktop-mode");
         const dshDesktopPlatform = locationParams.get("dsh-desktop-platform");
-        const isDshDesktop = ["compatibility", "advanced"].includes(
+        const isDshDesktop = ["compatibility", "extended", "advanced"].includes(
           dshDesktopMode
         ) && ["darwin", "win32", "linux"].includes(dshDesktopPlatform);
+        if (!isDshDesktop) return;
+        const desktopTopInset = isDshDesktop && dshDesktopMode === "advanced" &&
+          ["darwin", "win32"].includes(dshDesktopPlatform)
+          ? DSH_ENHANCED_TITLEBAR_HEIGHT
+          : 0;
         const continuationAttempts = new Map();
         const loadCurrent = (item) => {
           const sessionId = ctx.sessions.list.getSnapshot().current;
@@ -2703,6 +2798,7 @@ ${listLines(handoff.open_questions)}`;
                   order: -10,
                   inject: () => ({
                     dshDesktop: isDshDesktop,
+                    desktopTopInset,
                     draftClarification: (sourceId, projectPath, prompt) =>
                       loadClarificationDraft(ctx, sourceId, projectPath, prompt),
                     getPendingQuestion: (sourceId) => pendingQuestionText(ctx, sourceId),
@@ -2819,6 +2915,8 @@ ${listLines(handoff.open_questions)}`;
                   id: "specsrelay-clarification",
                   order: 42,
                   inject: (sessionId) => ({
+                    dshDesktop: isDshDesktop,
+                    desktopTopInset,
                     sessionId,
                     draftClarification: (sourceId, projectPath, prompt) =>
                       loadClarificationDraft(ctx, sourceId, projectPath, prompt),

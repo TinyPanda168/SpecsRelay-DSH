@@ -1,28 +1,31 @@
-# SpecsRelay desktop client adapters
+# SpecsRelay and DSH Desktop integration
 
-SpecsRelay ships one DSH plugin bundle. The installer identifies each desktop client and selects its DSH profile and data directory, while the desktop adapter owns the real DeepSeek page. Conversation capture, organization, clarification, and delivery remain in the same SpecsRelay bundle.
+SpecsRelay supports only DSH Desktop by anywhere-labs. Its installer, UI entry points, and native-page integration target this client. Other DSH desktop clients and the browser-based WebUI are outside the supported scope.
 
-## Unified install entry
+## Installation
 
 ```sh
 npx --yes github:TinyPanda168/SpecsRelay-DSH install
 ```
 
-The installer scans supported applications and installs into every detected target. It distinguishes same-name applications by `CFBundleIdentifier` on macOS and unpacked application metadata on Windows. Portable or non-standard locations can add `--app <path>`; `--dry-run` only prints detection and installation plans.
+The installer recognizes only DSH Desktop. macOS uses `CFBundleIdentifier`; Windows reads unpacked application metadata. A matching application name alone does not establish support. Use `--app <path>` for non-standard locations and `--dry-run` to inspect the installation plan without writing files.
 
-## Client mapping
+| Property | Value |
+| --- | --- |
+| macOS application identifier | `ai.deepseek.dsh.desktop` |
+| Installation profile | `desktop` |
+| Default DSH_HOME | `~/.dsh`, overridable through `DSH_HOME` or `--dsh-home` |
+| Application resource layout | `app` or `app.asar.unpacked` |
+| Native page service | `desktopWebPanels` supplied by DSH Desktop |
 
-| Adapter | Application identity | Profile | Default DSH_HOME | Native page source |
-| --- | --- | --- | --- | --- |
-| `dsh-desktop` | `ai.deepseek.dsh.desktop` | `desktop` | `~/.dsh` | Existing client `desktopWebPanels` Host |
-| `pilot-harness` | `com.codepilot.pilotharness` | `web` | Electron `userData/harness` | Pilot native Host |
-| `dataelement-dsh-desktop` | `io.dsh.desktop` | `web` | Electron `userData/harness` | SpecsRelay child-process bridge |
-| `myyang-dsh-desktop` | `com.deepseek.dsh.desktop` | `web` | `~/.dsh` | SpecsRelay child-process bridge, local backend only |
+The installer uses the application's bundled DSH command without modifying the desktop executable. The client must already contain a working native page service.
 
-The DataElement and myYangyunfan adapters send a narrow page-lifecycle vocabulary over Node child-process IPC. Electron owns the sandboxed `WebContentsView`, persistent sign-in partition, allowed origins, bounds, and disposal. The DSH plugin receives neither Electron objects nor general main-process access.
+## Native page and layout
 
-The WSL-managed backend in the myYangyunfan client does not run as an Electron-owned local Node child and therefore cannot establish this local IPC channel. Its ordinary local backend remains supported.
+The isolated DSH Desktop Host process must also register `desktopWebPanels`; registering it only in Electron's main process does not support the default launch path. SpecsRelay uses this service to host the real DeepSeek page and no longer supplies child-process bridges for other clients. The server returns the underlying page-startup error, and the panel directs the user to its details.
 
-## Distribution boundary
+SpecsRelay registers its UI from the mode and platform signals supplied by DSH Desktop. The DeepSeek page stays on the left and the SpecsRelay controls stay on the right. The controls adapt to window width without switching to tabs in narrower windows. Requirement organization and clarification use the same layout.
 
-The unified installer does not modify desktop application executables. Pilot, DataElement, and myYangyunfan first require a SpecsRelay companion build containing the relevant native Host adapter; the installer then places the same plugin into the correct DSH profile. Until an upstream public package includes that Host, installing the plugin alone cannot add native-page support to it.
+In enhanced mode on macOS and Windows, overlays start below the 32-pixel titlebar and fill the remaining content area. The top safe area uses the workspace theme background across the full window width, does not intercept mouse events, and restores the host appearance when the overlay closes.
+
+Compatibility and extended modes place the titlebar outside the renderer, so overlays add no extra top inset. DSH Desktop places native pages above the content renderer and below the independent titlebar and its menus, keeping the window-mode menu visible above the page.

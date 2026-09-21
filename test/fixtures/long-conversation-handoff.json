@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "title": "本地笔记工具",
+  "objective": "支持断网编辑笔记",
+  "context": "用户撤回云同步方案，第一版仅在本地运行。",
+  "implementation_plan": ["实现本地笔记编辑和保存"],
+  "acceptance_criteria": ["断网后仍能编辑和保存笔记"],
+  "verification_steps": ["断开网络后编辑笔记并重新打开验证"],
+  "constraints": ["第一版不上传数据"],
+  "non_goals": ["云同步"],
+  "decisions": ["第一版只做本地"],
+  "open_questions": ["导出格式采用什么？"],
+  "local_context_needed": [],
+  "risk_level": "low",
+  "execution_mode": "plan",
+  "ready_for_execution": false,
+  "source": {
+    "provider": "DeepSeek",
+    "model": "deepseek-v4-flash",
+    "conversation_title": "本地笔记工具"
+  }
+}

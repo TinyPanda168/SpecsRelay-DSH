@@ -1,28 +1,31 @@
-# SpecsRelay 桌面客户端适配器
+# SpecsRelay 与 DSH Desktop 集成
 
-SpecsRelay 只发行一份 DSH 插件。安装器负责识别桌面客户端、选择该客户端使用的 DSH profile 与数据目录；桌面客户端适配器负责承载真实 DeepSeek 网页。需求抓取、整理、澄清和发送逻辑始终由同一个 SpecsRelay bundle 提供。
+SpecsRelay 仅支持 anywhere-labs DSH Desktop。安装器、界面入口和原生网页集成均以这一客户端为目标；其他 DSH 桌面客户端及普通浏览器 WebUI 不在支持范围内。
 
-## 统一安装入口
+## 安装入口
 
 ```sh
 npx --yes github:TinyPanda168/SpecsRelay-DSH install
 ```
 
-安装器会扫描已安装的受支持客户端并逐个安装。macOS 通过 `CFBundleIdentifier` 区分同名应用；Windows 读取解包后的应用元数据。便携版或非标准路径可以增加 `--app <path>`，`--dry-run` 只显示识别和安装计划。
+安装器只识别 DSH Desktop。macOS 以 `CFBundleIdentifier` 为准，Windows 读取解包后的应用元数据；应用名称相同不代表受支持。非标准路径可增加 `--app <path>`，`--dry-run` 只显示识别和安装计划。
 
-## 客户端映射
+| 项目 | 值 |
+| --- | --- |
+| macOS 应用标识 | `ai.deepseek.dsh.desktop` |
+| 安装 profile | `desktop` |
+| 默认 DSH_HOME | `~/.dsh`，可通过 `DSH_HOME` 或 `--dsh-home` 指定 |
+| 应用资源布局 | `app` 或 `app.asar.unpacked` |
+| 原生网页服务 | DSH Desktop 提供的 `desktopWebPanels` |
 
-| 适配器 | 应用标识 | profile | 默认 DSH_HOME | 原生网页来源 |
-| --- | --- | --- | --- | --- |
-| `dsh-desktop` | `ai.deepseek.dsh.desktop` | `desktop` | `~/.dsh` | 客户端现有 `desktopWebPanels` Host |
-| `pilot-harness` | `com.codepilot.pilotharness` | `web` | Electron `userData/harness` | Pilot 原生 Host |
-| `dataelement-dsh-desktop` | `io.dsh.desktop` | `web` | Electron `userData/harness` | SpecsRelay 子进程桥 |
-| `myyang-dsh-desktop` | `com.deepseek.dsh.desktop` | `web` | `~/.dsh` | SpecsRelay 子进程桥，仅本机后端 |
+安装器通过应用内置的 DSH 命令安装插件，不修改客户端可执行文件。客户端本身必须包含可用的原生网页服务。
 
-DataElement 与 myYangyunfan 适配器通过 Node 子进程 IPC 发送一组受限的页面生命周期操作。Electron 主进程持有沙箱 `WebContentsView`、持久登录 partition、允许来源、显示范围和销毁过程；DSH 插件不会获得 Electron 对象或任意主进程权限。
+## 原生网页与布局
 
-myYangyunfan 客户端的 WSL 托管后端不在 Electron 的本机 Node 子进程中运行，当前不能建立这条本机 IPC，因此不会声明原生网页能力。普通本机后端保持支持。
+DSH Desktop 的独立宿主进程也必须注册 `desktopWebPanels`；仅在 Electron 主进程中提供该服务不足以支持默认启动方式。SpecsRelay 使用此服务承载真实 DeepSeek 网页，不再提供其他客户端专用的子进程桥。网页启动失败时，具体原因由服务端返回，面板提示查看错误详情。
 
-## 发行边界
+SpecsRelay 根据 DSH Desktop 提供的模式和平台信号注册界面入口。DeepSeek 网页始终在左侧，SpecsRelay 操作面板始终在右侧；右侧宽度随窗口调整，缩窄窗口不会切换成标签页。该布局同时适用于需求整理与需求澄清入口。
 
-统一安装器不会修改桌面客户端可执行文件。Pilot、DataElement 和 myYangyunfan 需要先使用包含对应原生 Host 适配器的 SpecsRelay 配套构建；安装器随后只负责把同一份插件装入正确的 DSH profile。上游公开安装包在合入该 Host 之前不会因为单独安装插件而自动获得原生网页能力。
+macOS 和 Windows 的增强模式中，弹层从 32 像素标题栏下方开始，高度限定为剩余内容区域。顶部安全区使用与工作区相同的主题背景色，覆盖完整窗口宽度；背景不接收鼠标事件，关闭弹层后恢复宿主原有外观。
+
+兼容模式与扩展窗口的标题栏在 renderer 外，弹层不再额外增加顶部间距。DSH Desktop 将原生网页放在内容 renderer 上方、独立标题栏及其菜单下方，避免网页遮住窗口模式菜单。

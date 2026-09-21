@@ -18,7 +18,7 @@ async function clientHarness(promptResult = { ok: true, value: { accepted: true 
       ok: true,
       json: async () => ({ available: true, sourceFingerprint: "same" })
     }),
-    window: { location: { search: "" } },
+    window: { location: { search: "?dsh-desktop-mode=compatibility&dsh-desktop-platform=darwin" } },
     globalThis: {
       __ModuleLoader__: {
         load(definition) {

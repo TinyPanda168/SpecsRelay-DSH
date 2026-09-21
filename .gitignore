@@ -1,0 +1,26 @@
+# Local dependencies and agent tooling
+node_modules/
+.gitnexus/
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+.DS_Store
+
+# Private credentials and local runtime state
+.env
+.env.*
+!.env.example
+!.env.*.example
+.credentials*
+credentials.json
+credentials.yaml
+credentials.yml
+*.key
+*.pem
+.dsh/
+.specsrelay/
+dsh-deepseek-bridge.json
+
+# Retired local publication material
+product-hunt/archive/

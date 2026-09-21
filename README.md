@@ -4,13 +4,11 @@
 
 SpecsRelay for DeepSeek 是一款面向 DSH 桌面客户端的开源需求交接插件。它在桌面端内打开真实、可登录的 DeepSeek 网页，并提供常驻的需求交接面板：用户点击一次即可获取当前完整多轮对话，复用 DSH 已配置的模型和内置需求分析 Skill，把讨论整理为结构化、可执行的开发需求，再发送到选定项目并启动 Agent。
 
-SpecsRelay 不是另一个聊天工具，也不要求用户改变在 DeepSeek 中讨论方案的习惯。只有整理结果存在会影响实现的未确认问题时，它才会请用户补充；需求已经清晰时则直接进入发送。初次需求交接与开发中的可选澄清流程都不需要浏览器扩展、手动复制粘贴、Docker、第三方平台，也不要求在 SpecsRelay 中再次填写 API Key。
+SpecsRelay 不是另一个聊天工具，也不要求用户改变在 DeepSeek 中讨论方案的习惯。只有整理结果存在会影响实现的未确认问题时，它才会请用户补充；需求已经清晰时则直接进入发送。默认流程不需要浏览器扩展、手动复制粘贴、Docker、第三方平台，也不要求在 SpecsRelay 中再次填写模型 API Key。只有用户主动开启可选的 Jev 长对话增强或会话接续分流时，才需要自行申请并配置 TypeSafe API Key。
 
 _本项目由社区独立维护，不是 DeepSeek 官方产品，也不是任何桌面客户端的内置插件。_
 
-> **当前兼容范围：SpecsRelay 目前只支持以下四款桌面客户端：** [anywhere-labs DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)、[Pilot Harness](https://github.com/op7418/pilot-harness)、[DataElement DSH Desktop](https://github.com/dataelement/dsh-desktop) 和 [myYangyunfan DSH Desktop](https://github.com/myYangyunfan/dsh_desktop)。其他 DSH 桌面客户端和普通浏览器 WebUI 暂不支持。
-
-其中 anywhere-labs DSH Desktop 是当前面向普通用户的推荐选择；其余三个客户端的完整支持目前需要 SpecsRelay 配套构建。
+> **支持范围：SpecsRelay 仅支持 [anywhere-labs DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)。** 其他 DSH 桌面客户端和普通浏览器 WebUI 不再提供兼容支持。
 
 简体中文 | [English](README.en.md)
 
@@ -41,6 +39,27 @@ SpecsRelay 把这段重复工作收进 DSH 桌面端，但不替代两边原有�
 3. 只有出现会影响产品结果的边界问题时，界面才会展示补充问题；没有待确认项时自动跳过。
 4. 选择目标项目并确认发送。SpecsRelay 将最终需求交给该项目的 DSH 会话，并立即启动 Agent。
 
+### 可选的长对话增强
+
+长对话增强嵌入 **整理当前对话** 内部：SpecsRelay 先获取完整网页对话；整理模型根据开头、最近讨论及本次澄清，确定目标、已确认决策、约束、验收标准、待确认问题这五类证据的查找重点；[Jev / TypeSafe System One](https://docs.typesafe.ai/agent-skill) 再分批判断原文片段是否有用，最后由原整理模型读取保留的证据并生成 Specs。Jev 负责找准信息，整理模型负责理解和写成需求。用户仍只点击一次，不需要选择压缩比例或处理单独的压缩步骤。
+
+该能力默认关闭。用户需要自行申请 TypeSafe API Key，并在对应桌面客户端的 `$DSH_HOME/.env`（或启动 DSH 的环境变量）中同时设置；这个本地文件不要提交到项目仓库：
+
+```sh
+SPECSRELAY_JEV_LONG_CONTEXT=1
+TYPESAFE_API_KEY=你的_TypeSafe_API_Key
+```
+
+`SPECSRELAY_JEV_API_KEY` 仍作为兼容别名。启用并配置 Key 后，达到 24,000 个字符的对话自动使用增强；短对话、没有 Key、未开启或角色标题无法可靠识别时，直接使用完整对话整理。规划或 Jev 请求失败、超时、返回无效时，也会丢弃本次所有筛选结果，回到完整原文整理。原有 400,000 字符导入上限及整理模型自身的上下文限制仍然适用。
+
+筛选保留所有可识别的用户原话、角色标题和最近两条消息；只略去高置信判断为闲聊或无信息增量重复的助手片段，不确定内容保留。判断时同时提供相邻片段和前后用户发言的片段，帮助保留用户回复所指的方案。保留片段按原顺序交给整理模型，原始对话不被覆盖。常见密钥和本次 TypeSafe Key 在切片前遮蔽；筛选会向 TypeSafe 发送规划问题及分批原文片段，累计可能涉及大部分对话，包括作为相邻上下文的用户内容，不局限于旧分流功能的 1,600 字符摘录。遮蔽不等于移除所有敏感信息，请只对允许发送给 TypeSafe 的对话开启此功能。
+
+把 `SPECSRELAY_JEV_LONG_CONTEXT` 改为 `0` 或移除即可关闭。它不选择整理模型，也不改变 Coding Agent 主模型。Jev 的中文筛选效果仍需用实际对话评估；当前自动化测试验证调用顺序、原文保留及失败回退，不代表真实模型准确率或节省比例。维护者可用 `SPECSRELAY_JEV_LONG_CONTEXT_MIN_CHARS`（1,000–400,000）、`SPECSRELAY_JEV_LONG_CONTEXT_TIMEOUT_MS`（100–60,000，默认 20,000）和 `SPECSRELAY_JEV_OMIT_PROBABILITY`（0.9–1，默认 0.98）调整触发长度、增强阶段总时限和保守剔除阈值；无效配置会明确报错。这些参数不需要普通用户设置。
+
+### 可选的会话接续分流
+
+原有 `SPECSRELAY_JEV_ROUTER=1` 现在仅用于 **接续会话** 的辅助模型选择，默认关闭，使用同一个可选 Key。它发送经过密钥遮蔽、最多 1,600 字符的任务摘录和候选模型说明；少于两个可用模型或请求失败时沿用原路线。这个开关不会开启长对话增强，需求整理也不再通过它选择模型。Key 通过 DSH 凭据服务或启动环境按次读取，不写入插件配置、工作区状态或日志。
+
 ### DSH 会话接续
 
 在 DSH 中持续实现时，可以点击输入区的 **接续会话**。SpecsRelay 会在当前 Agent 空闲后估算上下文占用；接近已配置模型上下文窗口的 80%，或观察到当前会话已自动压缩上下文时，按钮会变成 **建议接续**。这些只是提示，不会自动创建会话；模型没有提供可信窗口信息时仍可手动接续。
@@ -63,9 +82,10 @@ SpecsRelay 把这段重复工作收进 DSH 桌面端，但不替代两边原有�
 | 完整上下文抓取 | 点击整理后自动获取当前多轮对话，不需要复制粘贴或安装浏览器扩展 |
 | 需求整理与澄清 | 自动提炼目标、约束、已确认决定与验收标准，只在确有必要时提问 |
 | 复用 DSH 模型 | 使用桌面客户端中已经可用的模型，不在 SpecsRelay 中重复配置 Key |
+| 可选长对话增强 | 配置并开启 Jev 后，长对话自动筛选证据再整理；短对话直接整理，失败时回到完整原文 |
 | 项目级交接 | 选择项目目录、核对最终需求，然后直接发送并启动对应 Agent |
 | 开发中双向澄清 | 把 DSH 遇到的产品问题带回原 DeepSeek 对话讨论，只将新增内容放回原 DSH 会话草稿 |
-| 一个安装入口 | 同一份插件和同一条安装命令适配多款 DSH 社区桌面客户端 |
+| 一个安装入口 | 自动识别 DSH Desktop，将插件安装到对应配置目录 |
 
 ## 快速安装
 
@@ -75,7 +95,7 @@ SpecsRelay 把这段重复工作收进 DSH 桌面端，但不替代两边原有�
 npx --yes github:TinyPanda168/SpecsRelay-DSH install
 ```
 
-统一安装器会识别本机已安装的受支持客户端，并把同一份 SpecsRelay 插件安装到正确的 DSH profile。安装完成后重启对应客户端。
+安装器只识别本机的 DSH Desktop，并把 SpecsRelay 安装到它的 `desktop` profile。安装完成后重启 DSH Desktop。
 
 便携版或非标准安装位置可以显式传入应用路径：
 
@@ -91,26 +111,17 @@ npx --yes github:TinyPanda168/SpecsRelay-DSH install --dry-run
 
 ### 使用前需要
 
-- 一款受支持并包含 SpecsRelay 原生网页 Host 的 DSH 桌面客户端。
+- 包含 SpecsRelay 原生网页 Host 的 anywhere-labs DSH Desktop。
 - 客户端中已经连接并选中可用模型；SpecsRelay 不会额外索要模型 Key。
 - 在 SpecsRelay 打开的 DeepSeek 网页中完成登录。
 
-不需要浏览器扩展、开发者模式、Docker 或额外第三方服务。
+默认流程不需要浏览器扩展、开发者模式、Docker 或额外第三方服务。Jev 长对话增强和会话接续分流是可选的第三方能力，分别开启，不影响未开启用户。
 
 ## 支持的桌面客户端
 
-SpecsRelay 只维护一份核心插件。安装器负责识别客户端、profile 和数据目录；各桌面端只通过适配器提供原生网页与目录选择能力，抓取、整理、澄清和发送逻辑保持一致。
+SpecsRelay 仅支持 [anywhere-labs DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)，macOS 应用标识为 `ai.deepseek.dsh.desktop`。安装器只向该客户端的 `desktop` profile 安装插件。
 
-| 客户端 | 当前状态 | 说明 |
-| --- | --- | --- |
-| [anywhere-labs DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop) | **推荐** | 上游已提供 SpecsRelay 所需的原生网页 Host，适合普通用户优先选择 |
-| [Pilot Harness](https://github.com/op7418/pilot-harness) | 已适配 | 当前需要使用包含原生 Host 的 SpecsRelay 配套构建 |
-| [DataElement DSH Desktop](https://github.com/dataelement/dsh-desktop) | 已适配 | 当前需要使用包含进程桥的 SpecsRelay 配套构建 |
-| [myYangyunfan DSH Desktop](https://github.com/myYangyunfan/dsh_desktop) | 已适配 | 支持本机后端；WSL 托管模式暂不支持原生网页 Host |
-
-Pilot、DataElement 和 myYangyunfan 的公开安装包只有在合入对应原生 Host 后，才可以仅靠统一安装命令启用完整体验；当前应使用 SpecsRelay 配套源码构建。普通浏览器版 DSH WebUI 没有原生页面所有者，无法提供真实网页嵌入和后台对话抓取。
-
-客户端识别规则、数据目录和原生桥差异见 [桌面客户端适配器](docs/desktop-client-adapters.md)。Pilot 的当前集成基线见 [Pilot Harness 本地集成记录](docs/pilot-harness-integration.md)。
+客户端需要包含可用的 `desktopWebPanels` 原生网页服务。安装插件不会为缺少该服务的旧客户端补充宿主能力。安装识别、数据目录和窗口布局说明见 [DSH Desktop 集成](docs/desktop-client-adapters.md)。
 
 ## 使用方式
 
@@ -118,7 +129,7 @@ Pilot、DataElement 和 myYangyunfan 的公开安装包只有在合入对应原�
 2. 点击左侧栏底部的 SpecsRelay 图标。
 3. 在左侧 DeepSeek 网页登录并打开要交接的对话。
 4. 点击 **整理当前对话**，等待需求自动整理完成。
-5. 如果出现补充问题，完成回答并重新整理；没有问题时这一环节不会出现。
+5. 如果出现“需要你确认”，可以复制问题到左侧 DeepSeek 原对话继续讨论，再点“重新获取并整理”；也可以直接在 SpecsRelay 填写回答并继续整理。复制不会自动发送问题。没有待确认问题时这一环节不会出现。
 6. 选择或核对项目目录，确认发送会启动 Agent，然后点击 **发送到 DSH 并开始处理**。
 
 ## 数据与安全
@@ -128,6 +139,7 @@ Pilot、DataElement 和 myYangyunfan 的公开安装包只有在合入对应原�
 - Node integration 与 preload 访问保持关闭；主 frame 导航仅允许 `https://chat.deepseek.com`。
 - 只有用户点击 **整理当前对话**、**开始澄清** 或 **读取刚才的讨论** 后才会执行 DOM 抓取；加载、显示和调整网页尺寸不会抓取内容。
 - 当前对话、需求草稿、恢复记录与执行快照保存在 DSH 主机的本地 SpecsRelay 数据目录；浏览器存储仅作为兼容回退。随后再交给 DSH 已配置的模型整理，澄清和修订沿用同一模型链路。
+- Jev 能力默认关闭。长对话增强开启后会发送经常见密钥遮蔽的规划问题和分批对话原文；会话接续分流仅发送短摘录及候选模型说明。两者都不会主动读取项目文件或工具结果；但用户粘贴进网页对话的内容可能包含这些信息。Key 只用于鉴权，不作为筛选证据发送。
 - `specsrelay-requirement-analysis` Skill 内置在工作流中，不需要用户单独安装或配置。
 - **发送到 DSH 并开始处理** 会通过 DSH 原生输入接口提交需求；恢复历史快照只恢复草稿，不会重复启动 Agent。
 - **接续会话** 只在用户确认后整理并发送；发送状态不明时不会再次自动提交，以免重复启动任务。
@@ -139,19 +151,19 @@ Pilot、DataElement 和 myYangyunfan 的公开安装包只有在合入对应原�
 pnpm dsh plugin --profile desktop add /absolute/path/to/SpecsRelay/plugins/dsh-deepseek
 ```
 
-添加插件后重启 DSH Desktop。普通 WebUI 无法提供原生 DeepSeek 面板，会明确提示需要桌面客户端。
+添加插件后重启 DSH Desktop。SpecsRelay 只在 DSH Desktop 提供的模式与平台信号下注册界面入口。
 
-四个客户端共用 `@specsrelay/dsh-deepseek` 的需求整理与交接核心，但不会共用一套未经区分的桌面界面。插件根据宿主提供的稳定信号选择客户端适配：例如官方 DSH Desktop 的页脚入口会在共享动作行中贴底，保持紧邻“设置”，其他客户端保留各自适合的布局。桌面客户端仍分别实现 `desktopWebPanels` 服务或 SpecsRelay 进程桥，用于创建沙箱 `WebContentsView`、保持登录 partition、执行受控 DOM 抓取，以及在 DSH 子进程退出时清理页面。
+`@specsrelay/dsh-deepseek` 使用 DSH Desktop 的 `desktopWebPanels` 服务承载真实网页。DSH Desktop 负责创建沙箱 `WebContentsView`、保持登录 partition、执行受控 DOM 抓取，以及清理原生页面；SpecsRelay 负责需求整理、澄清和发送。
 
 ## 与相关项目的关系
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 提供 Agent、模型、会话、Web UI 和插件系统。SpecsRelay 通过插件机制安装，不修改其核心运行时。
-- [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)、[Pilot Harness](https://github.com/op7418/pilot-harness)、[DataElement DSH Desktop](https://github.com/dataelement/dsh-desktop) 和 [myYangyunfan DSH Desktop](https://github.com/myYangyunfan/dsh_desktop) 是独立维护的社区桌面客户端。SpecsRelay 只是兼容它们，不属于这些项目的内置功能。
+- [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop) 是独立维护的社区桌面客户端，也是 SpecsRelay 唯一支持的桌面客户端。SpecsRelay 通过插件安装，不属于该项目的内置功能。
 - 本仓库只包含 SpecsRelay 的 DSH 插件发行文件，不包含 SpecsRelay 浏览器扩展版本。
 
 ## 特别感谢
 
-感谢 DeepSeek Harness 与各社区桌面客户端提供的插件基础、桌面能力和持续维护。也感谢 [AI Chat Exporter](https://github.com/TheBluCoder/AI-chat-exporter) 提供可参考的开源对话提取实现。第三方代码与许可证说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+感谢 DeepSeek Harness 与 DSH Desktop 提供的插件基础、桌面能力和持续维护。也感谢 [AI Chat Exporter](https://github.com/TheBluCoder/AI-chat-exporter) 提供可参考的开源对话提取实现。第三方代码与许可证说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## License
 

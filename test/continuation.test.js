@@ -121,3 +121,91 @@ test("long sessions are summarized in chunks and merged without dropping source 
   assert.equal(result.packet.goal, packet.goal);
   assert.ok(ctx.streamCalls() >= 3);
 });
+
+test("a Jev-selected auxiliary route failure falls back to the existing route", async () => {
+  const observedRoutes = [];
+  const session = {
+    header: { cwd: "/project" },
+    requestHeader: () => ({
+      config: { provider: "deepseek-official", model: "deepseek-flash" }
+    }),
+    deriveMessages: () => messages
+  };
+  const ctx = {
+    agents: {
+      get: () => ({
+        session,
+        status: "idle",
+        options: { provider: "deepseek-official", model: "deepseek-flash" }
+      })
+    },
+    get(name) {
+      if (name === "tokenMeter") {
+        return { measure: () => ({ totalTokens: 200 }) };
+      }
+      if (name === "credentials") {
+        return {
+          resolve: async (ref) => ref === "SPECSRELAY_JEV_API_KEY"
+            ? { value: "test-key", source: "test" }
+            : undefined
+        };
+      }
+      return undefined;
+    },
+    llm: {
+      listProviders: () => [{ id: "deepseek-official" }],
+      listModels: async () => [
+        { provider: "deepseek-official", id: "deepseek-flash", name: "Flash" },
+        { provider: "deepseek-official", id: "deepseek-pro", name: "Pro" }
+      ],
+      resolveModelInfo: async (provider, id) => ({
+        provider,
+        id,
+        name: id,
+        context: { contextWindow: 1000 },
+        reasoning: {
+          efforts: [
+            { id: "off", name: "Off" },
+            { id: "high", name: "High" }
+          ]
+        }
+      }),
+      async *stream(options) {
+        observedRoutes.push({
+          model: options.model,
+          reasoningEffort: options.reasoningEffort
+        });
+        if (options.model === "deepseek-pro") {
+          throw new Error("selected route unavailable");
+        }
+        yield { type: "text-delta", index: 0, text: JSON.stringify(packet) };
+        yield { type: "finish", reason: "stop" };
+      }
+    }
+  };
+
+  const previousFlag = process.env.SPECSRELAY_JEV_ROUTER;
+  const previousFetch = globalThis.fetch;
+  process.env.SPECSRELAY_JEV_ROUTER = "1";
+  globalThis.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      answers: { route: { choice: "route_4" } }
+    })
+  });
+  try {
+    const result = await prepareContinuation(ctx, { sessionId: "old" });
+    assert.equal(result.packet.goal, packet.goal);
+    assert.deepEqual(observedRoutes.slice(0, 2), [
+      { model: "deepseek-pro", reasoningEffort: "high" },
+      { model: "deepseek-flash", reasoningEffort: "off" }
+    ]);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousFlag === undefined) {
+      delete process.env.SPECSRELAY_JEV_ROUTER;
+    } else {
+      process.env.SPECSRELAY_JEV_ROUTER = previousFlag;
+    }
+  }
+});

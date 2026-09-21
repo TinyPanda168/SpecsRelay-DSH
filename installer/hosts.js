@@ -6,73 +6,15 @@ import { execFileSync } from "node:child_process";
 export const HOSTS = [
   {
     id: "dsh-desktop",
-    name: "DSH Desktop by anywhere-labs",
+    name: "DSH Desktop",
     bundleId: "ai.deepseek.dsh.desktop",
     profile: "desktop",
     dshHome: ({ home, environment }) => environment.DSH_HOME || join(home, ".dsh"),
     dshBins: [
       "Contents/Resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh/lib/bin.js",
-      "resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh/lib/bin.js"
-    ],
-    nodeBins: []
-  },
-  {
-    id: "pilot-harness",
-    name: "Pilot Harness",
-    bundleId: "com.codepilot.pilotharness",
-    profile: "web",
-    dshHome: ({ home, environment, platform }) =>
-      environment.PILOT_HARNESS_DSH_HOME ||
-      (platform === "win32"
-        ? join(environment.APPDATA || join(home, "AppData", "Roaming"), "Pilot Harness", "harness")
-        : join(home, "Library", "Application Support", "Pilot Harness", "harness")),
-    dshBins: [
+      "resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh/lib/bin.js",
       "Contents/Resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
       "resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js"
-    ],
-    nodeBins: []
-  },
-  {
-    id: "dataelement-dsh-desktop",
-    name: "DSH Desktop by DataElement",
-    bundleId: "io.dsh.desktop",
-    profile: "web",
-    dshHome: ({ home, environment, platform }) =>
-      environment.DSH_HOME ||
-      (platform === "win32"
-        ? join(environment.APPDATA || join(home, "AppData", "Roaming"), "dsh-desktop", "harness")
-        : join(home, "Library", "Application Support", "dsh-desktop", "harness")),
-    dshBins: [
-      "Contents/Resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
-      "resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js"
-    ],
-    nodeBins: [
-      "Contents/Resources/app/node_modules/node/bin/node",
-      "resources/app/node_modules/node/bin/node.exe"
-    ],
-    profileDependencies: [
-      {
-        name: "dsh-desktop-market-installer",
-        paths: [
-          "Contents/Resources/app/node_modules/dsh-desktop-market-installer",
-          "resources/app/node_modules/dsh-desktop-market-installer"
-        ]
-      }
-    ]
-  },
-  {
-    id: "myyang-dsh-desktop",
-    name: "DSH Desktop by myYangyunfan",
-    bundleId: "com.deepseek.dsh.desktop",
-    profile: "web",
-    dshHome: ({ home, environment }) => environment.DSH_HOME || join(home, ".dsh"),
-    dshBins: [
-      "Contents/Resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
-      "resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js"
-    ],
-    nodeBins: [
-      "Contents/Resources/node/node",
-      "resources/node/node.exe"
     ]
   }
 ];
@@ -120,12 +62,8 @@ function hostFromMetadata(metadata) {
       ? metadata.repository
       : metadata?.repository?.url || ""
   ).toLowerCase();
-  if (repository.includes("dataelement/dsh-desktop")) return HOSTS[2];
-  if (repository.includes("op7418/pilot-harness")) return HOSTS[1];
   if (repository.includes("anywhere-labs/deepseek-harness-desktop")) return HOSTS[0];
   if (metadata?.name === "dsh-plugin-desktop") return HOSTS[0];
-  if (metadata?.productName === "Pilot Harness") return HOSTS[1];
-  if (metadata?.name === "dsh-desktop") return HOSTS[3];
   return undefined;
 }
 
@@ -145,19 +83,11 @@ export function resolveHostInstallation(host, appPath, {
 } = {}) {
   const root = applicationRoot(appPath, platform);
   const dshBin = firstExisting(root, host.dshBins);
-  const bundledNode = firstExisting(root, host.nodeBins);
-  const profileDependencies = (host.profileDependencies || []).map((dependency) => {
-    const dependencyPath = firstExisting(root, dependency.paths);
-    if (!dependencyPath) {
-      throw new Error(`${host.name} 中没有找到配套组件 ${dependency.name}。请升级客户端后重试。`);
-    }
-    return { name: dependency.name, packageSpec: `file:${dependencyPath}` };
-  });
   const executable = executableFor(appPath, platform, bundleExecutable);
   if (!dshBin) {
     throw new Error(`${host.name} 中没有找到 DSH 命令。请升级客户端后重试。`);
   }
-  if (!bundledNode && !existsSync(executable)) {
+  if (!existsSync(executable)) {
     throw new Error(`${host.name} 的运行程序不存在：${executable}`);
   }
   return {
@@ -166,10 +96,9 @@ export function resolveHostInstallation(host, appPath, {
     appPath,
     profile: host.profile,
     dshHome: dshHome || host.dshHome({ home, environment, platform }),
-    executable: bundledNode || executable,
+    executable,
     dshBin,
-    profileDependencies,
-    electronRunAsNode: !bundledNode
+    electronRunAsNode: true
   };
 }
 
@@ -202,8 +131,8 @@ function windowsApplications(environment, extraRoots) {
     environment["ProgramFiles(x86)"],
     ...extraRoots
   ].filter(Boolean);
-  const directories = ["DSH Desktop", "Pilot Harness", "pilot-harness", "dsh-desktop"];
-  const executables = ["DSH Desktop.exe", "Pilot Harness.exe", "pilot-harness.exe", "dsh-desktop.exe"];
+  const directories = ["DSH Desktop", "dsh-desktop"];
+  const executables = ["DSH Desktop.exe", "dsh-desktop.exe"];
   const candidates = [];
   for (const root of roots) {
     for (const directory of directories) {
@@ -227,6 +156,7 @@ export function identifyHost(appPath, { platform = process.platform } = {}) {
           bundleExecutable: macBundleValue(appPath, "CFBundleExecutable")
         };
       }
+      return undefined;
     } catch {
       // Fall back to unpacked package metadata below.
     }
@@ -238,7 +168,6 @@ export function identifyHost(appPath, { platform = process.platform } = {}) {
 export function detectHostInstallations({
   platform = process.platform,
   appPaths,
-  hostId,
   dshHome,
   extraRoots = [],
   environment = process.env
@@ -253,7 +182,7 @@ export function detectHostInstallations({
   const installations = [];
   for (const appPath of candidates) {
     const identified = identifyHost(appPath, { platform });
-    if (!identified || (hostId && identified.host.id !== hostId)) continue;
+    if (!identified) continue;
     installations.push(
       resolveHostInstallation(identified.host, appPath, {
         platform,

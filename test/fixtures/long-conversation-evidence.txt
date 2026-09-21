@@ -1,0 +1,17 @@
+## User · Turn 1
+做一个本地笔记工具。
+
+## Assistant · Turn 1
+
+[SpecsRelay：已略去一段经筛选的助手闲聊或重复内容；原始对话仍保留。]
+## User · Turn 2
+撤回云同步方案，第一版只做本地。
+
+## Assistant · Turn 2
+
+[SpecsRelay：已略去一段经筛选的助手闲聊或重复内容；原始对话仍保留。]
+## User · Turn 3
+断网也要能编辑，导出格式尚未确认。
+
+## Assistant · Turn 3
+导出格式作为待确认问题。
