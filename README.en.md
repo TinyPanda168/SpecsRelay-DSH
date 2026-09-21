@@ -12,6 +12,8 @@ _This is an independently maintained community project. It is not an official De
 
 [简体中文](README.md) | English
 
+Latest update: **0.10.0 (2026-09-21)** — [Read the changelog](CHANGELOG.en.md) for long-conversation enhancement, webpage clarification, desktop layout fixes and the supported-client change.
+
 <a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt launch rank number 66" width="250" height="54" src="assets/product-hunt-rank-66.svg"></a>
 
 ![SpecsRelay organizes a DeepSeek conversation and sends it to a DSH Agent](assets/specsrelay-dsh-hero.png)

@@ -12,6 +12,8 @@ _本项目由社区独立维护，不是 DeepSeek 官方产品，也不是任何
 
 简体中文 | [English](README.en.md)
 
+最近更新：**0.10.0（2026-09-21）** — [查看更新记录](CHANGELOG.md)，包含长对话增强、回网页继续澄清、桌面布局修复及支持范围调整。
+
 <a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt 发布日排名第 66 名" width="250" height="54" src="assets/product-hunt-rank-66.svg"></a>
 
 ![SpecsRelay 将 DeepSeek 对话整理为需求并发送到 DSH Agent](assets/specsrelay-dsh-hero.png)
