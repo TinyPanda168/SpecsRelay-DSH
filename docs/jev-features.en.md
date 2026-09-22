@@ -1,6 +1,6 @@
 # Configure optional Jev features
 
-[Back to README](../README.en.md#optional-features) · [简体中文](jev-features.md) | English
+[Back to README](../README.en.md#documentation) · [简体中文](jev-features.md) | English
 
 Jev provides long-conversation evidence selection and session-continuation routing. **Both are off by default and enabled independently.** The complete requirement-organization workflow works without Jev.
 

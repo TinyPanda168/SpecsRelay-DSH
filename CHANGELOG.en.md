@@ -20,7 +20,7 @@
 
 ### Configuration and upgrading
 
-- Both Jev features are independently enabled and off by default; the Key is optional. Organization works without Jev. Once long-conversation enhancement is enabled with a Key, conversations of at least 24,000 characters are screened automatically. Short conversations bypass screening; failed planning or screening falls back to the full conversation. See the [configuration guide](README.en.md#optional-long-conversation-enhancement).
+- Both Jev features are independently enabled and off by default; the Key is optional. Organization works without Jev. Once long-conversation enhancement is enabled with a Key, conversations of at least 24,000 characters are screened automatically. Short conversations bypass screening; failed planning or screening falls back to the full conversation. See the [configuration guide](docs/jev-features.en.md#long-conversation-enhancement).
 - Restart DSH Desktop after updating the plugin. The client must already provide a working native page service; installing this plugin does not modify the desktop executable. The client owns the stacking of window-mode menus and native pages. See the [integration guide](docs/desktop-client-adapters.en.md).
 
 ### Validation

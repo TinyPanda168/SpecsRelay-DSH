@@ -1,6 +1,6 @@
 # Jev 可选功能配置
 
-[返回 README](../README.md#可选功能) · 简体中文 | [English](jev-features.en.md)
+[返回 README](../README.md#文档) · 简体中文 | [English](jev-features.en.md)
 
 Jev 提供长对话证据筛选和会话接续分流。**两项能力默认关闭，分别开启**；不配置 Jev 也能使用完整的需求整理流程。
 
