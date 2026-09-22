@@ -1,4 +1,4 @@
-# SpecsRelay for DeepSeek
+# SpecsRelay for DeepSeek (Jev-enhanced)
 
 [简体中文](README.md) | English
 
