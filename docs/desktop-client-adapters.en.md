@@ -5,7 +5,7 @@ SpecsRelay supports only DSH Desktop by anywhere-labs. Its installer, UI entry p
 ## Installation
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 The installer recognizes only DSH Desktop. macOS uses `CFBundleIdentifier`; Windows reads unpacked application metadata. A matching application name alone does not establish support. Use `--app <path>` for non-standard locations and `--dry-run` to inspect the installation plan without writing files.

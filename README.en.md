@@ -25,7 +25,7 @@ Both Jev features are off by default. Enabling them requires a TypeSafe API Key 
 Install and start DSH Desktop, configure a working model, then run:
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#quick-install)
@@ -38,6 +38,6 @@ Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#q
 
 ## Documentation
 
-[User guide](docs/usage.en.md) · [Optional Jev features (off by default)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [0.10.0 changelog](CHANGELOG.en.md)
+[User guide](docs/usage.en.md) · [Optional Jev features (off by default)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [Changelog](CHANGELOG.en.md)
 
 [MIT licensed](LICENSE) · Independent community plugin for DSH Desktop by anywhere-labs only. Not an official DeepSeek product.

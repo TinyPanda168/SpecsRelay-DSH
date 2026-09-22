@@ -8,7 +8,7 @@ This launch is for the open-source plugin in this repository, which supports onl
 
 Primary product URL:
 
-<https://github.com/TinyPanda168/SpecsRelay-DSH>
+<https://github.com/TinyPandaGame/SpecsRelay-DSH>
 
 ## Files
 

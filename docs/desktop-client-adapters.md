@@ -5,7 +5,7 @@ SpecsRelay 仅支持 anywhere-labs DSH Desktop。安装器、界面入口和原�
 ## 安装入口
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 安装器只识别 DSH Desktop。macOS 以 `CFBundleIdentifier` 为准，Windows 读取解包后的应用元数据；应用名称相同不代表受支持。非标准路径可增加 `--app <path>`，`--dry-run` 只显示识别和安装计划。

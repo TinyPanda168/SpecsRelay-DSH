@@ -7,7 +7,7 @@
 Install and start [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop), connect and select a working model, then run:
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 **Restart DSH Desktop** after installation. The regular workflow needs no browser extension, Docker, or additional third-party service.
@@ -18,13 +18,13 @@ npx --yes github:TinyPanda168/SpecsRelay-DSH install
 Specify the desktop application path:
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install --app "/absolute/path/to/DSH Desktop.app"
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/absolute/path/to/DSH Desktop.app"
 ```
 
 Inspect detection without writing files:
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install --dry-run
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --dry-run
 ```
 
 </details>

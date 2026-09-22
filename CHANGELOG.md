@@ -5,6 +5,7 @@
 ## 2026-09-22
 
 - 修正 DSH Desktop 左侧栏入口顺序：SpecsRelay 排在“导入会话”下方、“手机连接”和“设置”上方。
+- GitHub 仓库迁移至 [TinyPandaGame/SpecsRelay-DSH](https://github.com/TinyPandaGame/SpecsRelay-DSH)，安装器默认来源、安装说明和发布素材同步使用新地址。
 
 ## 0.10.0 — 2026-09-21
 
@@ -32,4 +33,4 @@
 - 71 项自动化测试通过，覆盖安装识别、面板布局条件、复制与重新获取、会话接续、Jev 证据筛选及异常回退；测试不调用真实付费模型，不能代替真实对话上的筛选质量评估。
 - 已检查本次待提交文件和此前未推送提交，并与本机凭据比对，未发现私人 Key；扫描中唯一的疑似项是密钥拦截测试中的虚拟值。
 
-代码变更：[ef2b00c](https://github.com/TinyPanda168/SpecsRelay-DSH/commit/ef2b00ccebc2db87572eb9fb1cbef03e6203493e)。
+代码变更：[ef2b00c](https://github.com/TinyPandaGame/SpecsRelay-DSH/commit/ef2b00ccebc2db87572eb9fb1cbef03e6203493e)。

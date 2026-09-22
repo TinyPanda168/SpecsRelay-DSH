@@ -10,7 +10,7 @@
 
 ## 2. Create the draft
 
-- [ ] Select **Post** and enter `https://github.com/TinyPanda168/SpecsRelay-DSH`.
+- [ ] Select **Post** and enter `https://github.com/TinyPandaGame/SpecsRelay-DSH`.
 - [ ] Paste the product name, tagline, description, pricing, status, and topics from `SUBMISSION.en.md`.
 - [ ] Add the creator's personal Product Hunt account as Maker.
 - [ ] Upload `assets/thumbnail-240.png`.

@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TinyPanda168/SpecsRelay-DSH.git"
+    "url": "git+https://github.com/TinyPandaGame/SpecsRelay-DSH.git"
   },
-  "homepage": "https://github.com/TinyPanda168/SpecsRelay-DSH#readme",
+  "homepage": "https://github.com/TinyPandaGame/SpecsRelay-DSH#readme",
   "bugs": {
-    "url": "https://github.com/TinyPanda168/SpecsRelay-DSH/issues"
+    "url": "https://github.com/TinyPandaGame/SpecsRelay-DSH/issues"
   },
   "exports": {
     ".": "./index.js",

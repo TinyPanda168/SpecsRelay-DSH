@@ -5,6 +5,7 @@
 ## 2026-09-22
 
 - Place the SpecsRelay sidebar entry below Import sessions and above Phone connection and Settings in DSH Desktop.
+- Move the GitHub repository to [TinyPandaGame/SpecsRelay-DSH](https://github.com/TinyPandaGame/SpecsRelay-DSH) and update the installer's default source, installation guides, and launch materials.
 
 ## 0.10.0 — 2026-09-21
 
@@ -32,4 +33,4 @@
 - All 71 automated tests passed, covering installation detection, panel layout conditions, copying and recapture, session continuation, Jev evidence selection and failure fallbacks. Tests do not call paid live models and do not establish screening quality on real conversations.
 - Checked the files being committed and previously unpushed commits, including comparisons against local credentials. No private Keys were found; the scanner's sole suspicious match was a dummy value in a credential-rejection test.
 
-Implementation: [ef2b00c](https://github.com/TinyPanda168/SpecsRelay-DSH/commit/ef2b00ccebc2db87572eb9fb1cbef03e6203493e).
+Implementation: [ef2b00c](https://github.com/TinyPandaGame/SpecsRelay-DSH/commit/ef2b00ccebc2db87572eb9fb1cbef03e6203493e).

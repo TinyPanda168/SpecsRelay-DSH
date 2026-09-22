@@ -16,7 +16,7 @@ Turn DeepSeek conversations into work your DSH Agent can run
 
 **主链接**
 
-<https://github.com/TinyPanda168/SpecsRelay-DSH>
+<https://github.com/TinyPandaGame/SpecsRelay-DSH>
 
 **Description 英文原文**
 

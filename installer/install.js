@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { detectHostInstallations } from "./hosts.js";
 
-export const DEFAULT_PACKAGE_SPEC = "github:TinyPanda168/SpecsRelay-DSH";
+export const DEFAULT_PACKAGE_SPEC = "github:TinyPandaGame/SpecsRelay-DSH";
 
 export function installCommand(installation, packageSpec = DEFAULT_PACKAGE_SPEC) {
   return {

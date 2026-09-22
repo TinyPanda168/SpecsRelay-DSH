@@ -12,7 +12,7 @@ Turn DeepSeek conversations into work your DSH Agent can run
 
 **Primary URL**
 
-<https://github.com/TinyPanda168/SpecsRelay-DSH>
+<https://github.com/TinyPandaGame/SpecsRelay-DSH>
 
 **Description — maximum 260 characters**
 

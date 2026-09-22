@@ -7,7 +7,7 @@
 先安装并启动 [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)，在客户端中连接并选中可用模型，然后运行：
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 安装完成后**重启 DSH Desktop**。日常使用不需要浏览器扩展、Docker 或额外第三方服务。
@@ -18,13 +18,13 @@ npx --yes github:TinyPanda168/SpecsRelay-DSH install
 指定桌面应用路径：
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install --app "/absolute/path/to/DSH Desktop.app"
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/absolute/path/to/DSH Desktop.app"
 ```
 
 只检查识别结果，不写入文件：
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install --dry-run
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --dry-run
 ```
 
 </details>

@@ -63,7 +63,7 @@ function footer(label = 'Open source · MIT licensed · Community maintained') {
   return `
     <line x1="58" y1="698" x2="1212" y2="698" stroke="#ffffff" stroke-opacity="0.12"/>
     <text x="58" y="730" fill="#a9b6c5" font-family="${font}" font-size="17">${label}</text>
-    <text x="1212" y="730" text-anchor="end" fill="#78e3bd" font-family="${font}" font-size="17">github.com/TinyPanda168/SpecsRelay-DSH</text>`;
+    <text x="1212" y="730" text-anchor="end" fill="#78e3bd" font-family="${font}" font-size="17">github.com/TinyPandaGame/SpecsRelay-DSH</text>`;
 }
 
 function pill(x, y, width, label, accent = '#78e3bd') {
@@ -168,7 +168,7 @@ async function buildSocialCard() {
     ${pill(230, 356, 186, 'No copy &amp; paste')}
     <line x1="56" y1="558" x2="1144" y2="558" stroke="#ffffff" stroke-opacity="0.12"/>
     <text x="56" y="594" fill="#a9b6c5" font-family="${font}" font-size="17">SpecsRelay for DeepSeek</text>
-    <text x="1144" y="594" text-anchor="end" fill="#78e3bd" font-family="${font}" font-size="17">github.com/TinyPanda168/SpecsRelay-DSH</text>`;
+    <text x="1144" y="594" text-anchor="end" fill="#78e3bd" font-family="${font}" font-size="17">github.com/TinyPandaGame/SpecsRelay-DSH</text>`;
   const outputPath = path.join(outputDirectory, 'social-card-1200x630.png');
   await sharp(Buffer.from(svgDocument(1200, 630, content))).png().toFile(outputPath);
   return outputPath;

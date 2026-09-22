@@ -85,6 +85,8 @@ for (const platform of ["darwin", "win32"]) {
           dshHome: join(root, "dsh-home")
         });
         const command = installCommand(installation, "file:/local/specsrelay");
+        assert.deepEqual(installCommand(installation).args,
+          [dshBin, "plugin", "--profile", "desktop", "add", "github:TinyPandaGame/SpecsRelay-DSH"]);
         assert.equal(installation.dshBin, dshBin);
         assert.equal(command.command, executable);
         assert.equal(installation.profile, "desktop");

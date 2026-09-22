@@ -25,7 +25,7 @@ Jev 两项能力默认关闭；开启需 TypeSafe API Key，并会向 TypeSafe �
 先安装并启动 DSH Desktop、配置可用模型，再运行：
 
 ```sh
-npx --yes github:TinyPanda168/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 ```
 
 安装后重启客户端。[安装要求与自定义路径](docs/usage.md#快速安装)
@@ -38,6 +38,6 @@ npx --yes github:TinyPanda168/SpecsRelay-DSH install
 
 ## 文档
 
-[使用指南](docs/usage.md) · [可选 Jev 增强（默认关闭）](docs/jev-features.md) · [数据与安全](docs/usage.md#数据与安全) · [0.10.0 更新记录](CHANGELOG.md)
+[使用指南](docs/usage.md) · [可选 Jev 增强（默认关闭）](docs/jev-features.md) · [数据与安全](docs/usage.md#数据与安全) · [更新记录](CHANGELOG.md)
 
 [MIT 开源](LICENSE) · 独立社区插件，仅支持 anywhere-labs DSH Desktop，非 DeepSeek 官方产品。
