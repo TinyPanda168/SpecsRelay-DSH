@@ -44,6 +44,10 @@ test("only DSH Desktop registers UI and reserves captions in enhanced mode", asy
       assert.equal(registrations.size, 0, `unsupported host: ${mode}/${platform}`);
       continue;
     }
+    const shortcut = registrations.get("sidebar.footer.action/specsrelay-deepseek");
+    const footer = [{ id: "chat-import", order: 0 }, shortcut.options]
+      .sort((left, right) => left.order - right.order);
+    assert.deepEqual(footer.map((entry) => entry.id), ["chat-import", "specsrelay-deepseek"]);
     const useSessions = (select) => select({ current: "session", byId: { session: { cwd: "/workspace" } } });
     for (const id of ["sidebar.footer.action/specsrelay-deepseek", "conversation.input.right/specsrelay-clarification"]) {
       openShortcut = true;
@@ -75,7 +79,6 @@ test("bottom-aligns the footer shortcut only in official DSH Desktop", async () 
   assert.match(client, /locationParams\.get\("dsh-desktop-platform"\)/);
   assert.match(client, /alignSelf: dshDesktop \? "flex-end" : undefined/);
   assert.match(client, /dshDesktop: isDshDesktop/);
-  assert.match(client, /order: -10/);
 });
 
 test("continuation uses a fresh session in the same workspace only after confirmation", async () => {

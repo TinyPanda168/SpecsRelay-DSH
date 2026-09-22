@@ -22,6 +22,8 @@ The installer uses the application's bundled DSH command without modifying the d
 
 ## Native page and layout
 
+The sidebar footer lists Import sessions, SpecsRelay, Phone connection, and Settings in that order when those entries are enabled. SpecsRelay uses the `sidebar.footer.action` slot after the session-import entry.
+
 The isolated DSH Desktop Host process must also register `desktopWebPanels`; registering it only in Electron's main process does not support the default launch path. SpecsRelay uses this service to host the real DeepSeek page and no longer supplies child-process bridges for other clients. The server returns the underlying page-startup error, and the panel directs the user to its details.
 
 SpecsRelay registers its UI from the mode and platform signals supplied by DSH Desktop. The DeepSeek page stays on the left and the SpecsRelay controls stay on the right. The controls adapt to window width without switching to tabs in narrower windows. Requirement organization and clarification use the same layout.

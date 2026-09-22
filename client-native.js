@@ -2795,7 +2795,7 @@ ${listLines(handoff.open_questions)}`;
                 {
                   name: "sidebar.footer.action",
                   id: "specsrelay-deepseek",
-                  order: -10,
+                  order: 10,
                   inject: () => ({
                     dshDesktop: isDshDesktop,
                     desktopTopInset,

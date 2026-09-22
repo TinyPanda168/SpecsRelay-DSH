@@ -22,6 +22,8 @@ npx --yes github:TinyPanda168/SpecsRelay-DSH install
 
 ## 原生网页与布局
 
+左侧栏底部按“导入会话 → SpecsRelay → 手机连接 → 设置”排列（仅显示已启用的入口）。SpecsRelay 使用 `sidebar.footer.action` 插槽，排在会话导入入口之后。
+
 DSH Desktop 的独立宿主进程也必须注册 `desktopWebPanels`；仅在 Electron 主进程中提供该服务不足以支持默认启动方式。SpecsRelay 使用此服务承载真实 DeepSeek 网页，不再提供其他客户端专用的子进程桥。网页启动失败时，具体原因由服务端返回，面板提示查看错误详情。
 
 SpecsRelay 根据 DSH Desktop 提供的模式和平台信号注册界面入口。DeepSeek 网页始终在左侧，SpecsRelay 操作面板始终在右侧；右侧宽度随窗口调整，缩窄窗口不会切换成标签页。该布局同时适用于需求整理与需求澄清入口。

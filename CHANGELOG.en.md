@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.md) | English
 
+## 2026-09-22
+
+- Place the SpecsRelay sidebar entry below Import sessions and above Phone connection and Settings in DSH Desktop.
+
 ## 0.10.0 — 2026-09-21
 
 ### Added
