@@ -13,9 +13,12 @@ A plugin for [DSH Desktop by anywhere-labs](https://github.com/anywhere-labs/dee
 ## Highlights
 
 - **Organize in one click**: extract goals, constraints and acceptance criteria from the full conversation.
+- **Optional Jev enhancement**: select evidence from long conversations and choose an auxiliary organizer model for session continuation.
 - **Clarify as you go**: take open questions back to DeepSeek, then continue development.
 - **Continue long tasks**: hand off current progress to a new session in the same project.
 - **Reuse your model**: the default workflow uses your DSH model without entering its Key again.
+
+Both Jev features are off by default. Enabling them requires a TypeSafe API Key and sends relevant conversation content to TypeSafe. [Setup and data handling](docs/jev-features.en.md)
 
 ## Quick install
 
