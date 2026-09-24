@@ -2,6 +2,13 @@
 
 [简体中文](CHANGELOG.md) | English
 
+## 2026-09-24
+
+- **Select organization methods by content**: combine necessary clarification, requirement/acceptance coverage, revision reconciliation and review within the existing organizer's generation. Buttons and the handoff format remain unchanged.
+- **Reduce unnecessary questions**: ask prerequisite decisions first, at most three material questions per round; reassess after answers or revisions and remove answered, withdrawn or irrelevant questions.
+- **Record adoption precisely**: reproduce Superpowers' five-item review checklist with its MIT license; independently write the selected methods inspired by grill-me, Spec-Kit and OpenSpec. Trellis remains a tracked reference. See the [adoption record (Chinese)](docs/external-reference-watchlist.md#实际采用记录--2026-09-24).
+- **Validation scope**: 13 relevant automated tests passed, covering actual Skill loading, call counts, revision inputs and existing interactions. Six content-evaluation scenarios are documented; live-model semantic quality has not been evaluated. No framework dependency, separate routing service or persistent requirement-version manager was added.
+
 ## 2026-09-22
 
 - Place the SpecsRelay sidebar entry below Import sessions and above Phone connection and Settings in DSH Desktop.

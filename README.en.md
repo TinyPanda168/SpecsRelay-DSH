@@ -12,7 +12,7 @@ A plugin for [DSH Desktop by anywhere-labs](https://github.com/anywhere-labs/dee
 
 ## Highlights
 
-- **Organize in one click**: extract goals, constraints and acceptance criteria from the full conversation.
+- **Organize in one click**: extract goals, constraints and acceptance criteria, selecting clarification, coverage checks and revision reconciliation according to the content.
 - **Optional Jev enhancement**: select evidence from long conversations and choose an auxiliary organizer model for session continuation.
 - **Clarify as you go**: take open questions back to DeepSeek, then continue development.
 - **Continue long tasks**: hand off current progress to a new session in the same project.

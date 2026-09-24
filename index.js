@@ -763,7 +763,7 @@ ${safeConversation}
     throw new Error("需要提供待确认问题的答案或修订说明。");
   }
 
-  return `请继续使用 SpecsRelay 需求分析 Skill，根据同一份 DeepSeek 网页对话、上一次结构化需求，以及用户刚刚明确提供的答案或修订说明，重建一份完整的 SpecsRelay handoff。不要只返回差异；不要把助手建议当成用户决定；未被用户回答的产品选择继续保留在 open_questions。
+  return `请继续使用 SpecsRelay 需求分析 Skill，根据同一份 DeepSeek 网页对话、上一次结构化需求，以及用户刚刚明确提供的答案或修订说明，重建一份完整的 SpecsRelay handoff。上次产物只是对需求的解释，不代表用户已经确认或代码已经实现。保留未受影响且有用户依据的要求，将修正和撤回同步到所有相关字段。先消除已回答、已撤回或已不适用的问题，再按前置决策选择本轮最多三个必要问题；未解决的依赖选择不得擅自作答。只返回完整现行需求，不单独返回差异，也不要把助手建议当成用户决定。
 
 <deepseek_conversation>
 ${safeConversation}
