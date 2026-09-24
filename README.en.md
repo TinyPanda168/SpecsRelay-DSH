@@ -4,7 +4,7 @@
 
 **Turn DeepSeek conversations into requirements your DSH Agent can execute.**
 
-A plugin for [DSH Desktop by anywhere-labs](https://github.com/anywhere-labs/deepseek-harness-desktop) that saves you from copying long chats and explaining the task again.
+A plugin for the official [DeepSeek Harness Desktop](https://github.com/deepseek-ai/DeepSeek-Harness) and [community DSH Desktop by anywhere-labs](https://github.com/anywhere-labs/deepseek-harness-desktop), saving you from copying long chats and explaining the task again.
 
 <a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt launch rank number 66" width="250" height="54" src="assets/product-hunt-rank-66.svg"></a>
 
@@ -22,15 +22,15 @@ Enhancement is off by default. Expand its sidebar settings, choose a service and
 
 ## Quick install
 
-The client must include the `desktopWebPanels` native service. Stock official 2.0.13 does not include it; the installer now rejects it before changing the profile. See [desktop repair and upgrade checks](docs/desktop-native-repair.md).
+**Official DeepSeek Harness Desktop**: open the app's **Plugins** page, install `github:TinyPandaGame/SpecsRelay-DSH`, then restart. Configure a working DSH model first. Official Desktop uses its built-in browser API and needs no community native-page patch.
 
-Install and start DSH Desktop, configure a working model, then run:
+**Community DSH Desktop by anywhere-labs**: the client must provide `desktopWebPanels`; see [repair and upgrade checks](docs/desktop-native-repair.md). Run:
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
-Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#quick-install)
+Restart afterward. [Supported versions and installation](docs/usage.en.md#quick-install)
 
 ## How to use
 
@@ -44,4 +44,4 @@ Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#q
 
 [External reference watchlist (Chinese)](docs/external-reference-watchlist.md): tracked sources, version baselines, and selective adoption assessments.
 
-[MIT licensed](LICENSE) · Independent community plugin for DSH Desktop by anywhere-labs only. Not an official DeepSeek product.
+[MIT licensed](LICENSE) · Independent community plugin; not an official DeepSeek product.

@@ -4,10 +4,12 @@
 
 ## 快速安装
 
-先安装并启动 [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)，在客户端中连接并选中可用模型，然后运行：
+**DeepSeek Harness 官方桌面端**：先配置可用模型，在 **插件** 页面安装 `github:TinyPandaGame/SpecsRelay-DSH`，然后重启。由官方应用管理插件安装，不使用社区版 CLI 修改其 desktop profile。
+
+**anywhere-labs 社区版 DSH Desktop**：使用具备原生网页服务的客户端，然后运行：
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
 安装完成后**重启 DSH Desktop**。日常使用不需要浏览器扩展、Docker 或额外第三方服务。
@@ -31,7 +33,7 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install --dry-run
 
 ### 支持的桌面客户端
 
-仅支持 anywhere-labs DSH Desktop；其他 DSH 客户端和浏览器 WebUI 不在支持范围内。客户端必须已具备 SpecsRelay 所需的原生网页服务，安装插件不会为旧客户端补齐该能力。
+支持 DeepSeek Harness 官方桌面端（已实测 macOS Apple Silicon 0.1.7-rc.2）与 anywhere-labs 社区版 DSH Desktop。官方版需提供协议版本 1 的浏览器接口，社区版需提供 `desktopWebPanels`。其他客户端与普通浏览器 WebUI 仍不在支持范围内；官方 Windows/Linux 版尚未实测。
 
 安装识别、配置目录及窗口模式见 [DSH Desktop 集成说明](desktop-client-adapters.md)。
 
@@ -133,7 +135,7 @@ Agent 遇到需要你决定的问题时，可以回到 DeepSeek 继续讨论，�
 <details>
 <summary>原生网页隔离</summary>
 
-DeepSeek 网页由沙箱化的 `WebContentsView` 承载。Node integration 和 preload 访问保持关闭，主 frame 导航仅允许 `https://chat.deepseek.com`。
+官方版通过租用接口提供沙箱化 `webview`，社区版使用 `WebContentsView`。插件不添加 Node integration 或 preload，只在 `https://chat.deepseek.com` 执行抓取和发送脚本；关闭官方版面板时释放网页租用。如果 DeepSeek 提示使用环境异常，请先按网页提示处理；插件不绕过登录或网站检查。
 
 </details>
 
@@ -143,12 +145,10 @@ DeepSeek 网页由沙箱化的 `WebContentsView` 承载。Node integration 和 p
 <summary>从源码加载插件与服务分工</summary>
 
 ```sh
-pnpm dsh plugin --profile desktop add /absolute/path/to/SpecsRelay/plugins/dsh-deepseek
+pnpm dsh plugin --profile desktop add /absolute/path/to/SpecsRelay-DSH
 ```
 
-添加后重启 DSH Desktop。插件只在客户端提供模式与平台信号时注册界面入口。
-
-`@specsrelay/dsh-deepseek` 使用 DSH Desktop 的 `desktopWebPanels` 服务。客户端负责原生网页、登录隔离、受控抓取与页面清理；插件负责需求整理、澄清和发送。
+以上命令用于社区版；官方版在应用的插件页面安装本地插件路径，完成后重启。界面入口识别官方浏览器接口或社区版模式与平台信号；服务分工见[客户端适配说明](desktop-client-adapters.md)。
 
 </details>
 

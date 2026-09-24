@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
-test("only DSH Desktop registers UI and reserves captions in enhanced mode", async () => {
+test("community desktop signals register UI and reserve captions in enhanced mode", async () => {
   const source = await readFile(new URL("../client-native.js", import.meta.url), "utf8");
   for (const [mode, platform, inset, desktop] of [
     ["advanced", "darwin", 32, true],
@@ -67,12 +67,12 @@ test("only DSH Desktop registers UI and reserves captions in enhanced mode", asy
 test("uses a desktop-provided directory picker before the DSH web fallback", async () => {
   const client = await readFile(new URL("../client-native.js", import.meta.url), "utf8");
 
-  assert.match(client, /const desktopPicker = window\.dshDesktopDirectoryPicker;/);
+  assert.ok(client.includes("officialBridge ? window.__DSH_DIRECTORY_PICKER__ : window.dshDesktopDirectoryPicker"));
   assert.match(client, /desktopPicker\.pick\(\)/);
-  assert.match(client, /ctx\.workspaces\.pickDirectory\(\)/);
+  assert.ok(client.includes('(officialBridge ? ctx.get("uiWorkspace") : ctx.workspaces).pickDirectory()'));
 });
 
-test("bottom-aligns the footer shortcut only in official DSH Desktop", async () => {
+test("bottom-aligns the footer shortcut in supported desktop clients", async () => {
   const client = await readFile(new URL("../client-native.js", import.meta.url), "utf8");
 
   assert.match(client, /locationParams\.get\("dsh-desktop-mode"\)/);
@@ -88,5 +88,5 @@ test("continuation uses a fresh session in the same workspace only after confirm
   assert.match(client, /ctx\.sessions\.create\(\{ workspaceId: workspace\.workspaceId \}\)/);
   assert.match(client, /binding\.session\.prompt\(/);
   assert.match(client, /continuationAttempts\.set\(sourceId, \{ targetId: newId \}\)/);
-  assert.match(client, /ctx\.sessions\.open\(newId\)/);
+  assert.ok(client.includes("openSession(newId)"));
 });

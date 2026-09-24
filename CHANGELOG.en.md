@@ -2,6 +2,13 @@
 
 [简体中文](CHANGELOG.md) | English
 
+## 0.11.0 — 2026-09-25
+
+- **Official Desktop adapter**: support DeepSeek Harness Desktop browser bridge protocol 1, alongside the existing anywhere-labs community adapter. Real DeepSeek pages use an official sandboxed webview lease; close, failure, timeout and late acquisition release it.
+- **Session and UI compatibility**: use official main-view selection and workspace navigation, retain handoff/continuation targets through acceptance, and support the new icon exports. Preserve the left-page/right-SpecsRelay layout and the entry below Import sessions.
+- **Installation**: official Desktop installs through its Plugins page. macOS detection prints those instructions instead of running community CLI against its profile. The community native-page patch remains separate.
+- **Validation**: 97 plugin tests passed, including official and community adapters, guest lifecycle, multibyte capture, clarification and accepted/rejected handoffs. Official 0.1.7-rc.2 on macOS Apple Silicon loaded the real DeepSeek sign-in page and passed a real organizer request. Current-project display and empty-capture errors were checked in the running app. The website's environment warning prevents signed-in end-to-end acceptance; official Windows/Linux remain untested. See [adapter details](docs/desktop-client-adapters.en.md).
+
 ## 2026-09-24
 
 - **Desktop upgrade compatibility**: retain a native-page companion source patch for DSH Desktop 2.0.13, covering Electron and isolated Host registration, RPC, menu stacking and build exports. The installer checks packaged capability files before modifying the profile, and the plugin now explains missing native support. A plugin update does not modify the desktop application. See [repair and upgrade notes](docs/desktop-native-repair.md).

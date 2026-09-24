@@ -4,7 +4,7 @@
 
 **把 DeepSeek 对话变成开发需求，交给 DSH Agent 执行。**
 
-适用于 [anywhere-labs DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)，省去手动复制长对话、重新解释需求的过程。
+适用于 [DeepSeek Harness 官方桌面端](https://github.com/deepseek-ai/DeepSeek-Harness)及 [anywhere-labs 社区版 DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop)，省去手动复制长对话、重新解释需求的过程。
 
 <a href="https://www.producthunt.com/products/specsrelay-for-deepseek" target="_blank" rel="noopener noreferrer"><img alt="Product Hunt 发布日排名第 66 名" width="250" height="54" src="assets/product-hunt-rank-66.svg"></a>
 
@@ -22,15 +22,15 @@
 
 ## 快速安装
 
-客户端须包含 `desktopWebPanels` 原生网页支持。未经配套补丁的官方 2.0.13 不包含这项能力；安装器会在修改配置前拦截。见[桌面修复与升级检查](docs/desktop-native-repair.md)。
+**DeepSeek Harness 官方桌面端**：先配置可用的 DSH 模型，在应用的 **插件** 页面安装 `github:TinyPandaGame/SpecsRelay-DSH`，然后重启。官方版使用内置浏览器接口，不需要社区版的原生网页补丁。
 
-先安装并启动 DSH Desktop、配置可用模型，再运行：
+**anywhere-labs 社区版 DSH Desktop**：客户端仍须具备 `desktopWebPanels`，见[修复与升级检查](docs/desktop-native-repair.md)。运行：
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
-安装后重启客户端。[安装要求与自定义路径](docs/usage.md#快速安装)
+安装后重启。[支持版本与安装详情](docs/usage.md#快速安装)
 
 ## 怎么用
 
@@ -44,4 +44,4 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 
 [外部来源更新与借鉴清单](docs/external-reference-watchlist.md)：记录跟踪来源、版本基线和按需采用判断。
 
-[MIT 开源](LICENSE) · 独立社区插件，仅支持 anywhere-labs DSH Desktop，非 DeepSeek 官方产品。
+[MIT 开源](LICENSE) · 独立社区插件，非 DeepSeek 官方产品。

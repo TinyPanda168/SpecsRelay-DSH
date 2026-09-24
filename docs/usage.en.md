@@ -4,10 +4,12 @@
 
 ## Quick install
 
-Install and start [DSH Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop), connect and select a working model, then run:
+**Official DeepSeek Harness Desktop**: configure a working model, open **Plugins**, install `github:TinyPandaGame/SpecsRelay-DSH`, then restart. The app owns plugin installation; do not use the community CLI to alter its desktop profile.
+
+**Community DSH Desktop by anywhere-labs**: use a client with the native-page service, then run:
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
 **Restart DSH Desktop** after installation. The regular workflow needs no browser extension, Docker, or additional third-party service.
@@ -31,7 +33,7 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install --dry-run
 
 ### Supported desktop clients
 
-Only DSH Desktop by anywhere-labs is supported. Other DSH clients and browser WebUI are outside scope. The client must already provide SpecsRelay's native page service; installing the plugin cannot add that capability to an older client.
+Official DeepSeek Harness Desktop (macOS Apple Silicon 0.1.7-rc.2 tested) and community DSH Desktop by anywhere-labs are supported. Official Desktop requires browser bridge protocol 1; the community client requires `desktopWebPanels`. Other clients and browser WebUI remain outside scope. Official Windows/Linux builds have not been validated.
 
 See [DSH Desktop integration](desktop-client-adapters.en.md) for detection, configuration directories and window modes.
 
@@ -133,7 +135,7 @@ When the Agent needs a product decision, discuss it in DeepSeek and bring your a
 <details>
 <summary>Native webpage isolation</summary>
 
-The DeepSeek page runs in a sandboxed `WebContentsView`. Node integration and preload access stay disabled; main-frame navigation is limited to `https://chat.deepseek.com`.
+Official Desktop supplies a leased, sandboxed `webview`; community Desktop uses `WebContentsView`. SpecsRelay adds no Node integration or preload and executes capture/send scripts only on `https://chat.deepseek.com`. Closing the official panel releases its guest lease. If DeepSeek shows an environment warning, stop and follow the website instructions; SpecsRelay does not bypass login or site checks.
 
 </details>
 
@@ -143,12 +145,10 @@ The DeepSeek page runs in a sandboxed `WebContentsView`. Node integration and pr
 <summary>Load from source and service responsibilities</summary>
 
 ```sh
-pnpm dsh plugin --profile desktop add /absolute/path/to/SpecsRelay/plugins/dsh-deepseek
+pnpm dsh plugin --profile desktop add /absolute/path/to/SpecsRelay-DSH
 ```
 
-Restart DSH Desktop after adding the plugin. UI entry points register only when the client provides its mode and platform signals.
-
-`@specsrelay/dsh-deepseek` uses DSH Desktop's `desktopWebPanels` service. The client owns native pages, sign-in isolation, controlled capture and page cleanup; the plugin owns requirement organization, clarification and delivery.
+The command above is for community Desktop. For official Desktop, install the local plugin path from its Plugins page, then restart. UI registration accepts either the official browser bridge or the community mode/platform signals. See [client adapters](desktop-client-adapters.en.md) for ownership and interface details.
 
 </details>
 

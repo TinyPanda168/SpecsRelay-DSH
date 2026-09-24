@@ -27,7 +27,8 @@ import {
   collectClarification,
   suggestClarificationQuestion
 } from "./lib/clarification.js";
-import { createSwitchableDesktopBrowserHost } from "./lib/native-browser.js";
+import { createSwitchableDesktopBrowserHost, DEEPSEEK_CAPTURE_EXPRESSION, buildDeepSeekSendExpression } from "./lib/native-browser.js";
+import { officialCapture } from "./lib/official-capture.js";
 import {
   createWorkspaceStore,
   MAX_WORKSPACE_STATE_BYTES
@@ -50,10 +51,12 @@ export const name = "specsrelay-dsh-deepseek";
 export const inject = ["agents", "llm", "skills", "webServer"];
 
 export const PROTOCOL_VERSION = 1;
-export const PLUGIN_VERSION = "0.10.0";
+export const PLUGIN_VERSION = "0.11.0";
 
 const MAX_INGRESS_BODY_BYTES = 320000;
 const MAX_CAPTURE_INGRESS_BODY_BYTES = 520000;
+// The official guest returns up to 500,000 characters, including multibyte text.
+const MAX_OFFICIAL_CAPTURE_BODY_BYTES = 2100000;
 const MAX_ORGANIZER_BODY_BYTES = 1600000;
 export const MAX_IMPORTED_CONTEXT_CHARS = 400000;
 const MAX_PROMPT_CHARS = 160000;
@@ -1092,6 +1095,35 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
       jsonResponse(res, 200, { items: inbox.list() });
     }
   });
+  const disposeOfficialScript = ctx.webServer.register({
+    kind: "exact",
+    path: "/specsrelay/v1/browser/script",
+    handler: (req, res) => {
+      if (!requireBrowserClient(req, res)) return;
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        jsonResponse(res, 405, { error: "Method not allowed." });
+        return;
+      }
+      jsonResponse(res, 200, { expression: DEEPSEEK_CAPTURE_EXPRESSION });
+    }
+  });
+  const disposeOfficialModule = ctx.webServer.register({
+    kind: "exact",
+    path: "/specsrelay/v1/official-browser.js",
+    handler: async (req, res) => {
+      if (!requireBrowserClient(req, res)) return;
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        jsonResponse(res, 405, { error: "Method not allowed." });
+        return;
+      }
+      const source = await readFile(new URL("./lib/official-browser-client.js", import.meta.url), "utf8");
+      res.setHeader("content-type", "text/javascript; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      res.end(source);
+    }
+  });
   const disposeLatest = ctx.webServer.register({
     kind: "exact",
     path: "/specsrelay/v1/handoffs/latest",
@@ -1193,7 +1225,10 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
         return;
       }
       try {
-        jsonResponse(res, 200, { item: await browser.capture() });
+        const value = req.headers["content-type"]?.includes("application/json")
+          ? await readJsonBody(req, MAX_OFFICIAL_CAPTURE_BODY_BYTES) : undefined;
+        const item = value?.capture ? officialCapture(value.capture) : await browser.capture();
+        jsonResponse(res, 200, { item });
       } catch (error) {
         jsonResponse(res, 400, {
           error: error instanceof Error ? error.message : String(error)
@@ -1412,18 +1447,24 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
         return;
       }
       try {
-        const value = await readJsonBody(req, 4096);
+        const value = await readJsonBody(req, MAX_OFFICIAL_CAPTURE_BODY_BYTES);
         const sessionId = boundedString(value?.sessionId, "Session id", 160);
         const { projectPath } = clarificationAgent(ctx, sessionId);
-        const capture = await browser.capture({ includeMessages: true });
+        const capture = value?.capture
+          ? officialCapture(value.capture, true) : await browser.capture({ includeMessages: true });
         const packet = beginClarification({
           sessionId, projectPath, question: value?.question, capture
         });
-        const delivery = await browser.sendMessage({
+        const send = {
           expectedUrl: packet.sourceUrl,
           marker: packet.marker,
           text: packet.promptToCopy
-        });
+        };
+        if (value?.capture) {
+          jsonResponse(res, 200, { ...packet, sendExpression: buildDeepSeekSendExpression(send) });
+          return;
+        }
+        const delivery = await browser.sendMessage(send);
         jsonResponse(res, 200, { ...packet, delivery });
       } catch (error) {
         jsonResponse(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -1441,14 +1482,15 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
         return;
       }
       try {
-        const value = await readJsonBody(req, 8192);
+        const value = await readJsonBody(req, MAX_OFFICIAL_CAPTURE_BODY_BYTES);
         const sessionId = boundedString(value?.sessionId, "Session id", 160);
         const { projectPath } = clarificationAgent(ctx, sessionId);
         if (value?.baseline?.sessionId !== sessionId ||
             value?.baseline?.projectPath !== projectPath) {
           throw new Error("DSH 会话或项目已变化，请重新开始澄清。");
         }
-        const capture = await browser.capture({ includeMessages: true });
+        const capture = value?.capture
+          ? officialCapture(value.capture, true) : await browser.capture({ includeMessages: true });
         jsonResponse(res, 200, collectClarification({ baseline: value.baseline, capture }));
       } catch (error) {
         jsonResponse(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -1456,6 +1498,8 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
     }
   });
   return async () => {
+    disposeOfficialModule();
+    disposeOfficialScript();
     disposeClarificationResult();
     disposeClarificationBegin();
     disposeClarificationQuestion();

@@ -7,9 +7,10 @@ import { mkdtempSync } from "node:fs";
 import { HOSTS, identifyHost, resolveHostInstallation, assertNativeWebPanels } from "../installer/hosts.js";
 import { installCommand, installDetected } from "../installer/install.js";
 
-test("the installer supports only DSH Desktop", () => {
+test("the installer identifies community and official Desktop independently", () => {
   assert.deepEqual(HOSTS.map(({ id, profile, bundleId }) => ({ id, profile, bundleId })), [
-    { id: "dsh-desktop", profile: "desktop", bundleId: "ai.deepseek.dsh.desktop" }
+    { id: "dsh-desktop", profile: "desktop", bundleId: "ai.deepseek.dsh.desktop" },
+    { id: "deepseek-harness-official", profile: "desktop", bundleId: "com.deepseek.dsh" }
   ]);
 });
 
@@ -28,7 +29,7 @@ for (const [name, metadata] of [
       await assert.rejects(installDetected({
         platform: "win32", appPaths: [root],
         spawnProcess: () => { launched = true; throw new Error("Must not launch"); }
-      }), /仅支持 anywhere-labs DSH Desktop/);
+      }), /没有检测到支持的桌面端/);
       assert.equal(launched, false);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -36,7 +37,7 @@ for (const [name, metadata] of [
   });
 }
 
-test("official package metadata identifies DSH Desktop", () => {
+test("community package metadata identifies DSH Desktop", () => {
   const root = mkdtempSync(join(tmpdir(), "specsrelay-installer-"));
   try {
     mkdirSync(join(root, "resources", "app"), { recursive: true });
@@ -50,6 +51,23 @@ test("official package metadata identifies DSH Desktop", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("official macOS installation routes to Plugins without launching the community CLI", { skip: process.platform !== "darwin" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "specsrelay-official-installer-"));
+  try {
+    const app = join(root, "DeepSeek Harness.app");
+    mkdirSync(join(app, "Contents/MacOS"), { recursive: true });
+    writeFileSync(join(app, "Contents/MacOS/DeepSeek Harness"), "");
+    writeFileSync(join(app, "Contents/Info.plist"), `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.deepseek.dsh</string><key>CFBundleExecutable</key><string>DeepSeek Harness</string></dict></plist>`);
+    assert.equal(identifyHost(app).host.id, "deepseek-harness-official");
+    for (const dryRun of [false, true]) {
+      const [installation] = await installDetected({ appPaths: [app], dryRun,
+        spawnProcess: () => assert.fail("official profile must be managed in app") });
+      assert.equal(installation.installMethod, "desktop-ui");
+      assert.throws(() => installCommand(installation), /插件/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("a different macOS bundle identity is not accepted through package metadata", { skip: process.platform !== "darwin" }, () => {

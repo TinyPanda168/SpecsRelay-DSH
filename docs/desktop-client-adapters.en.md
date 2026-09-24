@@ -1,28 +1,33 @@
-# SpecsRelay and DSH Desktop integration
+# SpecsRelay desktop client adapters
 
-SpecsRelay supports only DSH Desktop by anywhere-labs. Its installer, UI entry points, and native-page integration target this client. Other DSH desktop clients and the browser-based WebUI are outside the supported scope.
+SpecsRelay supports official DeepSeek Harness Desktop and community DSH Desktop by anywhere-labs. Requirement organization, enhancement, clarification and handoff share one workflow, with separate browser and session adapters. Other desktop forks and browser WebUI remain outside scope.
 
-## Installation
+| Client | macOS identifier | Browser API | Installation |
+| --- | --- | --- | --- |
+| Official DeepSeek Harness | `com.deepseek.dsh` | `window.dshDesktop.browser`, protocol 1 | In-app Plugins page |
+| Community anywhere-labs DSH Desktop | `ai.deepseek.dsh.desktop` | `desktopWebPanels` | Bundled DSH CLI / this installer |
+
+## Official Desktop
+
+Install `github:TinyPandaGame/SpecsRelay-DSH` from Plugins, then restart. The official app manages its desktop profile. This installer detects the official macOS app and prints in-app instructions without running the community CLI. When both clients are detected it prefers official instructions to avoid changing shared `~/.dsh` data. Explicit `--app` selection still permits community installation.
+
+The plugin directly consumes the official browser API through an independently implemented `lib/official-browser-client.js`; it copies or changes no official desktop core code. It leases a sandboxed `webview` per workspace and releases it on close, failed loading, timeout or late acquisition. Capture and clarification sending verify the DeepSeek origin. Node integration, preload and host security policies stay unchanged.
+
+The guest occupies the left DOM container with SpecsRelay on the right. The overlay reserves 32 pixels on macOS and 40 on Windows. Icon compatibility covers official Regular exports and community size-specific exports. Official selection uses `retainedBy.mainView`; project connection and navigation use `uiWorkspace`. Handoff and continuation explicitly retain the target session and wait for acceptance before reporting success.
+
+Validation baseline: official 0.1.7-rc.2 on macOS Apple Silicon. Real page loading, split layout, titlebar clearance and close/reopen were checked; a real organizer-model request passed. Automated tests cover capture, clarification and handoff interfaces. The unsigned-in website currently displays an environment warning, so the signed-in conversation-to-Agent flow has not been validated end to end. Official Windows/Linux builds and other versions have not been verified.
+
+## Community installation
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
-The installer recognizes only DSH Desktop. macOS uses `CFBundleIdentifier`; Windows reads unpacked application metadata. A matching application name alone does not establish support. Use `--app <path>` for non-standard locations and `--dry-run` to inspect the installation plan without writing files.
+macOS identifies the bundle; Windows reads unpacked package metadata. Application names alone are insufficient. `--dry-run` prints the plan. Installation targets the `desktop` profile in `~/.dsh`, overridable with `DSH_HOME` or `--dsh-home`.
 
-| Property | Value |
-| --- | --- |
-| macOS application identifier | `ai.deepseek.dsh.desktop` |
-| Installation profile | `desktop` |
-| Default DSH_HOME | `~/.dsh`, overridable through `DSH_HOME` or `--dsh-home` |
-| Application resource layout | `app` or `app.asar.unpacked` |
-| Native page service | `desktopWebPanels` supplied by DSH Desktop |
+The installer requires `./web-panels` and `lib/web-panels.js`, stopping without changing the app when they are missing. See the [community 2.0.13 repair notes](desktop-native-repair.md). That patch does not apply to official DeepSeek Desktop.
 
-The installer uses the application's bundled DSH command without modifying the desktop executable. The client must already contain a working native page service.
-
-The installer also checks the application's `./web-panels` export and `lib/web-panels.js` file. Both installation and `--dry-run` stop if these are absent; matching the application identity or version is insufficient. This static check does not replace a real launch test. See the [2.0.13 repair and source patch](desktop-native-repair.md).
-
-## Native page and layout
+## Community native page and layout
 
 The sidebar footer lists Import sessions, SpecsRelay, Phone connection, and Settings in that order when those entries are enabled. SpecsRelay uses the `sidebar.footer.action` slot after the session-import entry.
 

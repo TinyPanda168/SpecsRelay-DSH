@@ -6,7 +6,10 @@ import {
 } from "../installer/install.js";
 
 function help() {
-  process.stdout.write(`SpecsRelay for DSH Desktop installer
+  process.stdout.write(`SpecsRelay for DeepSeek Harness / DSH Desktop installer
+
+Official Desktop: install from the app's Plugins page.
+Community DSH Desktop: this command installs through its bundled CLI.
 
 Usage:
   specsrelay-dsh install [options]
@@ -47,6 +50,10 @@ try {
   } else {
     const completed = await installDetected(options);
     for (const installation of completed) {
+      if (installation.installMethod === "desktop-ui") {
+        process.stdout.write(`检测到 ${installation.hostName}。请在应用“插件”页面安装 ${options.packageSpec || "github:TinyPandaGame/SpecsRelay-DSH"}。\n`);
+        continue;
+      }
       const action = options.dryRun ? "检测到" : "已安装到";
       process.stdout.write(
         `${action} ${installation.hostName} · ${installation.profile} · ${installation.dshHome}\n`
@@ -56,7 +63,9 @@ try {
         process.stdout.write(`  ${command.command} ${command.args.join(" ")}\n`);
       }
     }
-    if (!options.dryRun) process.stdout.write("请重启 DSH Desktop。\n");
+    if (!options.dryRun && completed.some((item) => item.installMethod !== "desktop-ui")) {
+      process.stdout.write("请重启 DSH Desktop。\n");
+    }
   }
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

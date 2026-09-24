@@ -12,23 +12,37 @@
         useState,
         useSyncExternalStore
       } = React;
+      const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
       const {
         Button,
         Pill,
         StateDot,
         Toast,
-        IconArchiveOutline20,
-        IconChevronLeftOutline14,
-        IconCloseOutline16,
-        IconEditOutline16,
-        IconEnhanceOutline16,
-        IconRefreshOutline16,
-        IconSendOutline14,
-        IconTrashOutline16,
-        IconWarningOutline16
-      } = require("@deepseek-ai/dsh-client-ui-primitives");
+        IconArchiveOutline20 = primitives.IconArchiveOutlineRegular,
+        IconChevronLeftOutline14 = primitives.IconChevronLeftOutlineRegular,
+        IconCloseOutline16 = primitives.IconCloseOutlineRegular,
+        IconEditOutline16 = primitives.IconEditOutlineRegular,
+        IconEnhanceOutline16 = primitives.IconEnhanceOutlineRegular,
+        IconRefreshOutline16 = primitives.IconRefreshOutlineRegular,
+        IconSendOutline14 = primitives.IconSendOutlineRegular,
+        IconTrashOutline16 = primitives.IconTrashOutlineRegular,
+        IconWarningOutline16 = primitives.IconWarningOutlineRegular
+      } = primitives;
 
       const API = "/specsrelay/v1";
+      const officialBridge = window.dshDesktop?.protocolVersion === 1
+        && typeof window.dshDesktop.browser?.acquire === "function"
+        && typeof window.dshDesktop.browser?.release === "function"
+        && typeof window.dshDesktop.browser?.onOpenRequested === "function"
+        ? window.dshDesktop.browser : null;
+      async function browserRequest(route, value) {
+        const response = await fetch(`${API}${route}`, value === undefined
+          ? { cache: "no-store" }
+          : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      }
       const MAX_EXECUTION_SNAPSHOTS = 12;
       const MAX_REQUIREMENT_SOURCE_CHARS = 500000;
       const MAX_WORKSPACE_HISTORY = 3;
@@ -388,6 +402,28 @@ ${listLines(handoff.open_questions)}`;
         width: "100%"
       };
 
+      function selectedSessionId(sessions) {
+        return sessions.current || Object.values(sessions.byId).find(
+          (session) => (session.retainedBy?.mainView || 0) > 0
+        )?.id || "";
+      }
+
+      function navigateSession(ctx, sessionId) {
+        if (officialBridge) ctx.get("uiWorkspace").openSession(sessionId);
+        else ctx.sessions.open(sessionId);
+      }
+
+      async function withSession(ctx, sessionId, operation) {
+        if (!officialBridge) return operation();
+        const reference = ctx.sessions.retain(sessionId, { source: "controllerOperation" });
+        try {
+          await reference.ready;
+          return await operation();
+        } finally {
+          reference.release();
+        }
+      }
+
       function loadIntoSession(ctx, sessionId, item) {
         const list = ctx.sessions.list.getSnapshot();
         const summary = list.byId[sessionId];
@@ -411,7 +447,7 @@ ${listLines(handoff.open_questions)}`;
 
       function loadClarificationDraft(ctx, sessionId, projectPath, prompt) {
         const sessions = ctx.sessions.list.getSnapshot();
-        if (sessions.current !== sessionId) {
+        if (selectedSessionId(sessions) !== sessionId) {
           return { ok: false, message: "请先切回发起澄清的 DSH 会话。" };
         }
         if (normalizedPath(sessions.byId[sessionId]?.cwd) !== normalizedPath(projectPath)) {
@@ -465,7 +501,7 @@ ${listLines(handoff.open_questions)}`;
           return { ok: false, message: "请先选择项目目录。" };
         }
         const sessions = ctx.sessions.list.getSnapshot();
-        const currentSessionId = sessions.current;
+        const currentSessionId = selectedSessionId(sessions);
         const currentSession = currentSessionId
           ? sessions.byId[currentSessionId]
           : undefined;
@@ -485,7 +521,8 @@ ${listLines(handoff.open_questions)}`;
         if (!workspace) {
           workspace = await ctx.workspaces.create({ path: projectPath });
         }
-        const sessionId = await ctx.workspaces.connectWorkspace(
+        const navigation = officialBridge ? ctx.get("uiWorkspace") : ctx.workspaces;
+        const sessionId = await navigation.connectWorkspace(
           workspace.workspaceId
         );
         return { ok: true, projectPath: workspace.path, sessionId };
@@ -507,9 +544,23 @@ ${listLines(handoff.open_questions)}`;
             : await prepareProjectTarget(ctx, item.projectPath);
         if (!prepared.ok) return prepared;
         const submitStartedAt = performance.now();
-        const result = loadIntoSession(ctx, prepared.sessionId, {
-          ...item,
-          projectPath: prepared.projectPath
+        const result = await withSession(ctx, prepared.sessionId, async () => {
+          if (officialBridge && item.submit === true) {
+            const summary = ctx.sessions.list.getSnapshot().byId[prepared.sessionId];
+            if (normalizedPath(summary?.cwd) !== expected) {
+              return { ok: false, message: "目标会话的项目已变化，请重新选择项目。" };
+            }
+            const binding = ctx.sessions.binding(prepared.sessionId);
+            const accepted = await binding.session.prompt([{ type: "text", text: item.prompt }], "queue");
+            if (!accepted.ok) return { ok: false, message: "DSH 未接收需求，请检查会话状态后重试。" };
+            navigateSession(ctx, prepared.sessionId);
+            return { ok: true, sessionId: prepared.sessionId, submitted: true };
+          }
+          if (officialBridge) navigateSession(ctx, prepared.sessionId);
+          return loadIntoSession(ctx, prepared.sessionId, {
+            ...item,
+            projectPath: prepared.projectPath
+          });
         });
         return result.ok
           ? {
@@ -1149,6 +1200,7 @@ ${listLines(handoff.open_questions)}`;
 
       function SpecsRelayClarificationPanel({
         browserState,
+        officialBrowser,
         draftClarification,
         onComplete,
         pendingQuestion,
@@ -1221,7 +1273,12 @@ ${listLines(handoff.open_questions)}`;
           setBusy("begin");
           setError("");
           try {
-            const packet = await request("begin", { sessionId, question });
+            const capture = officialBrowser ? await (await officialBrowser).capture() : undefined;
+            const packet = await request("begin", { sessionId, question, capture });
+            if (officialBrowser) {
+              await (await officialBrowser).send(packet.sendExpression);
+              delete packet.sendExpression;
+            }
             await savePending(packet);
             setPending(packet);
             setResult(null);
@@ -1235,7 +1292,8 @@ ${listLines(handoff.open_questions)}`;
           setBusy("collect");
           setError("");
           try {
-            setResult(await request("result", { sessionId, baseline: pending }));
+            const capture = officialBrowser ? await (await officialBrowser).capture() : undefined;
+            setResult(await request("result", { sessionId, baseline: pending, capture }));
             setDraftCopied(false);
           } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
@@ -1439,6 +1497,18 @@ ${listLines(handoff.open_questions)}`;
         const [viewMode, setViewMode] = useState(mode);
         const [busy, setBusy] = useState("");
         const [browserState, setBrowserState] = useState("starting");
+        const officialContainerRef = useRef(null);
+        const browserMounted = useRef(false);
+        const officialBrowser = useMemo(() => officialBridge
+          ? import(`${API}/official-browser.js`).then(({ createOfficialBrowser }) => createOfficialBrowser(officialBridge, {
+              document, request: browserRequest,
+              onError: (error) => {
+                if (!browserMounted.current) return;
+                setBrowserState("error");
+                setMessageKind("error");
+                setMessage(error instanceof Error ? error.message : String(error));
+              }
+            })) : null, []);
         const [compactLayout, setCompactLayout] = useState(false);
         const [compactPane, setCompactPane] = useState("web");
         const [sources, setSources] = useState([]);
@@ -1672,6 +1742,11 @@ ${listLines(handoff.open_questions)}`;
           setBrowserState("starting");
           setMessage("");
           try {
+            if (officialBrowser) {
+              await (await officialBrowser).start(officialContainerRef.current, currentWorkspace || sessionId, reload);
+              if (browserMounted.current) setBrowserState("ready");
+              return;
+            }
             const response = await fetch(
               `${API}/browser/start${reload ? "?reload=1" : ""}`,
               {
@@ -1682,6 +1757,7 @@ ${listLines(handoff.open_questions)}`;
             if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
             setBrowserState("ready");
           } catch (error) {
+            if (!browserMounted.current) return;
             setBrowserState("error");
             setMessageKind("error");
             setMessage(error instanceof Error ? error.message : String(error));
@@ -1689,14 +1765,19 @@ ${listLines(handoff.open_questions)}`;
         };
 
         useEffect(() => {
+          browserMounted.current = true;
           void startBrowser();
+          return () => {
+            browserMounted.current = false;
+            if (officialBrowser) void officialBrowser.then((browser) => browser.dispose()).catch(() => {});
+          };
         }, []);
 
         const closeView = () => {
           if (loadedStorageKey === storageKey) {
             void writeWorkspaceState(storageKey, workspaceState).catch(() => {});
           }
-          void fetch(`${API}/browser/layout`, {
+          if (!officialBrowser) void fetch(`${API}/browser/layout`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ visible: false }),
@@ -1706,6 +1787,7 @@ ${listLines(handoff.open_questions)}`;
         };
 
         useEffect(() => {
+          if (officialBrowser) return;
           const node = webPanelRef.current;
           if (!node) return;
           let active = true;
@@ -1818,9 +1900,10 @@ ${listLines(handoff.open_questions)}`;
           setBusy("capture");
           setMessage("");
           try {
-            const response = await fetch(`${API}/browser/capture`, {
-              method: "POST"
-            });
+            const rawCapture = officialBrowser ? await (await officialBrowser).capture() : undefined;
+            const response = await fetch(`${API}/browser/capture`, rawCapture
+              ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ capture: rawCapture }) }
+              : { method: "POST" });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
             const capture = data.item;
@@ -2132,6 +2215,7 @@ ${listLines(handoff.open_questions)}`;
               {
                 ref: webPanelRef,
                 style: {
+                  position: "relative",
                   border: "1px solid var(--dsw-alias-border-subtle)",
                   borderRadius: 12,
                   display: compactLayout && compactPane !== "web" ? "none" : "block",
@@ -2139,6 +2223,10 @@ ${listLines(handoff.open_questions)}`;
                   overflow: "hidden"
                 }
               },
+              officialBrowser && h("div", {
+                ref: officialContainerRef,
+                style: { position: "absolute", inset: 0 }
+              }),
               h(
                 "div",
                 {
@@ -2146,7 +2234,9 @@ ${listLines(handoff.open_questions)}`;
                     alignItems: "center",
                     background: "#101114",
                     color: "var(--dsw-alias-text-tertiary)",
-                    display: "flex",
+                    display: officialBrowser && browserState === "ready" ? "none" : "flex",
+                    position: "relative",
+                    pointerEvents: "none",
                     height: "100%",
                     justifyContent: "center",
                     minHeight: 500,
@@ -2254,6 +2344,7 @@ ${listLines(handoff.open_questions)}`;
                 viewMode === "clarification"
                   ? h(SpecsRelayClarificationPanel, {
                       browserState,
+                      officialBrowser,
                       draftClarification,
                       onComplete: closeView,
                       pendingQuestion: getPendingQuestion?.(sessionId) || "",
@@ -2514,7 +2605,7 @@ ${listLines(handoff.open_questions)}`;
         useSessions
       }) {
         const [open, setOpen] = useState(false);
-        const sessionId = useSessions((sessions) => sessions.current || "");
+        const sessionId = useSessions(selectedSessionId);
         const onClick = () => setOpen(true);
         return h(
           React.Fragment,
@@ -2832,17 +2923,19 @@ ${listLines(handoff.open_questions)}`;
         const locationParams = new URLSearchParams(window.location.search);
         const dshDesktopMode = locationParams.get("dsh-desktop-mode");
         const dshDesktopPlatform = locationParams.get("dsh-desktop-platform");
-        const isDshDesktop = ["compatibility", "extended", "advanced"].includes(
+        const isDshDesktop = Boolean(officialBridge) || ["compatibility", "extended", "advanced"].includes(
           dshDesktopMode
         ) && ["darwin", "win32", "linux"].includes(dshDesktopPlatform);
         if (!isDshDesktop) return;
-        const desktopTopInset = isDshDesktop && dshDesktopMode === "advanced" &&
+        const desktopTopInset = officialBridge
+          ? (document.documentElement.dataset.platform === "win32" ? 40 : 32)
+          : isDshDesktop && dshDesktopMode === "advanced" &&
           ["darwin", "win32"].includes(dshDesktopPlatform)
           ? DSH_ENHANCED_TITLEBAR_HEIGHT
           : 0;
         const continuationAttempts = new Map();
         const loadCurrent = (item) => {
-          const sessionId = ctx.sessions.list.getSnapshot().current;
+          const sessionId = selectedSessionId(ctx.sessions.list.getSnapshot());
           if (!sessionId) {
             return {
               ok: false,
@@ -2852,12 +2945,12 @@ ${listLines(handoff.open_questions)}`;
           return loadIntoSession(ctx, sessionId, item);
         };
         const loadProject = (item) => loadIntoProject(ctx, item);
-        const openSession = (sessionId) => ctx.sessions.open(sessionId);
+        const openSession = (sessionId) => navigateSession(ctx, sessionId);
         const pickProject = () => {
-          const desktopPicker = window.dshDesktopDirectoryPicker;
+          const desktopPicker = officialBridge ? window.__DSH_DIRECTORY_PICKER__ : window.dshDesktopDirectoryPicker;
           return desktopPicker && typeof desktopPicker.pick === "function"
             ? desktopPicker.pick()
-            : ctx.workspaces.pickDirectory();
+            : (officialBridge ? ctx.get("uiWorkspace") : ctx.workspaces).pickDirectory();
         };
         const prepareProject = (projectPath) =>
           prepareProjectTarget(ctx, projectPath);
@@ -2917,7 +3010,7 @@ ${listLines(handoff.open_questions)}`;
                     continueSession: async (sourceId, prepared) => {
                       const prior = continuationAttempts.get(sourceId);
                       if (prior) {
-                        ctx.sessions.open(prior.targetId);
+                        openSession(prior.targetId);
                         throw new Error("已创建接续会话。请先在新会话核对发送状态，避免重复提交。");
                       }
                       const latestResponse = await fetch(
@@ -2933,7 +3026,7 @@ ${listLines(handoff.open_questions)}`;
                       }
                       const sessions = ctx.sessions.list.getSnapshot();
                       const source = sessions.byId[sourceId];
-                      const jobs = sessions.jobsBySession[sourceId] || [];
+                      const jobs = sessions.jobsBySession?.[sourceId] || [];
                       if (!source || source.running || jobs.length > 0) {
                         throw new Error("当前会话仍有任务在运行，请稍后接续。");
                       }
@@ -2949,28 +3042,30 @@ ${listLines(handoff.open_questions)}`;
                       }
                       const newId = await ctx.sessions.create({ workspaceId: workspace.workspaceId });
                       continuationAttempts.set(sourceId, { targetId: newId });
-                      const binding = ctx.sessions.binding(newId);
-                      if (!binding?.session) {
-                        ctx.sessions.open(newId);
-                        throw new Error("新会话已创建，但尚未准备好接收任务。请检查会话列表。");
-                      }
-                      let result;
-                      try {
-                        result = await binding.session.prompt(
-                          [{ type: "text", text: prepared.prompt }],
-                          "queue"
-                        );
-                      } catch {
-                        ctx.sessions.open(newId);
-                        throw new Error("新会话已创建，发送结果暂不确定。请先核对新会话，避免重复提交。");
-                      }
-                      if (!result.ok) {
-                        const scope = ctx.sessions.scope(newId);
-                        if (scope) ctx.conversation.input.for(scope).setDraft(prepared.prompt);
-                        ctx.sessions.open(newId);
-                        throw new Error("新会话已创建，但未能发送。需求已保留在草稿中，请核对后手动发送。");
-                      }
-                      ctx.sessions.open(newId);
+                      return withSession(ctx, newId, async () => {
+                        const binding = ctx.sessions.binding(newId);
+                        if (!binding?.session) {
+                          openSession(newId);
+                          throw new Error("新会话已创建，但尚未准备好接收任务。请检查会话列表。");
+                        }
+                        let result;
+                        try {
+                          result = await binding.session.prompt(
+                            [{ type: "text", text: prepared.prompt }],
+                            "queue"
+                          );
+                        } catch {
+                          openSession(newId);
+                          throw new Error("新会话已创建，发送结果暂不确定。请先核对新会话，避免重复提交。");
+                        }
+                        if (!result.ok) {
+                          const scope = ctx.sessions.scope(newId);
+                          if (scope) ctx.conversation.input.for(scope).setDraft(prepared.prompt);
+                          openSession(newId);
+                          throw new Error("新会话已创建，但未能发送。需求已保留在草稿中，请核对后手动发送。");
+                        }
+                        openSession(newId);
+                      });
                     }
                   })
                 },

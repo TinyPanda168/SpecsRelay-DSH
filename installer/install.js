@@ -4,6 +4,9 @@ import { detectHostInstallations } from "./hosts.js";
 export const DEFAULT_PACKAGE_SPEC = "github:TinyPandaGame/SpecsRelay-DSH";
 
 export function installCommand(installation, packageSpec = DEFAULT_PACKAGE_SPEC) {
+  if (installation.installMethod === "desktop-ui") {
+    throw new Error(`请在 ${installation.hostName} 的“插件”页面选择安装，输入 ${packageSpec}。官方桌面端由应用管理插件，不能使用社区版的 CLI 安装方式。`);
+  }
   return {
     command: installation.executable,
     args: [
@@ -49,7 +52,7 @@ export async function installDetected(options = {}) {
   const installations = detectHostInstallations(options);
   if (installations.length === 0) {
     throw new Error(
-      "没有检测到 DSH Desktop。SpecsRelay 仅支持 anywhere-labs DSH Desktop；可用 --app 指定其应用路径。"
+      "没有检测到支持的桌面端。可用 --app 指定 DeepSeek Harness 官方桌面端或 anywhere-labs DSH Desktop 的应用路径。"
     );
   }
   const completed = [];
@@ -58,7 +61,7 @@ export async function installDetected(options = {}) {
     const key = `${installation.dshHome}\0${installation.profile}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!options.dryRun) {
+    if (!options.dryRun && installation.installMethod !== "desktop-ui") {
       await installOne(installation, options.packageSpec || DEFAULT_PACKAGE_SPEC, options);
     }
     completed.push(installation);

@@ -1,28 +1,33 @@
-# SpecsRelay 与 DSH Desktop 集成
+# SpecsRelay 桌面客户端适配
 
-SpecsRelay 仅支持 anywhere-labs DSH Desktop。安装器、界面入口和原生网页集成均以这一客户端为目标；其他 DSH 桌面客户端及普通浏览器 WebUI 不在支持范围内。
+支持 DeepSeek Harness 官方桌面端，以及 anywhere-labs 社区版 DSH Desktop。两者共用需求整理、增强、澄清和交接流程，分别连接各自的浏览器与会话接口；其他桌面分支及普通浏览器 WebUI 不在支持范围内。
 
-## 安装入口
+| 客户端 | macOS 标识 | 网页能力 | 安装方式 |
+| --- | --- | --- | --- |
+| DeepSeek Harness 官方版 | `com.deepseek.dsh` | `window.dshDesktop.browser`，协议版本 1 | 应用内“插件”页面 |
+| anywhere-labs 社区版 | `ai.deepseek.dsh.desktop` | `desktopWebPanels` | 内置 DSH CLI / 本仓库安装器 |
+
+## 官方版
+
+在应用的插件页面安装 `github:TinyPandaGame/SpecsRelay-DSH`，然后重启。官方应用管理 desktop profile；本仓库安装器识别官方 macOS 应用后只提示应用内安装，不执行社区 CLI。同机识别到两者时优先提示官方版，避免修改共享的 `~/.dsh`；显式 `--app` 指向社区版仍可安装社区插件。
+
+插件直接调用官方浏览器 API，独立实现 `lib/official-browser-client.js` 适配层，没有复制或修改官方桌面核心。按项目获取网页租用、创建沙箱化 `webview`，关闭、加载失败、超时和延迟返回时释放租用。抓取和澄清发送前检查 DeepSeek 来源；Node integration、preload 和宿主安全策略保持不变。
+
+网页嵌入左侧 DOM 容器，右侧保持 SpecsRelay 面板。macOS 顶部预留 32 像素，Windows 按宿主布局预留 40 像素；图标同时适配官方 Regular 导出和社区版原有导出。官方会话通过 `retainedBy.mainView` 识别当前选择，项目连接与导航使用 `uiWorkspace`，交接及接续期间显式保留会话，等待接收结果后再报告发送成功。
+
+验证基线：macOS Apple Silicon，官方 0.1.7-rc.2。真实网页加载、左右布局、标题栏与关闭重开已检查，真实整理模型调用通过。抓取、澄清与交接接口另有自动化测试；网站目前在未登录页显示使用环境提示，尚未完成登录后真实对话到 Agent 的端到端验收。官方 Windows/Linux 未实测，不据此承诺其他版本兼容。
+
+## 社区版安装
 
 ```sh
-npx --yes github:TinyPandaGame/SpecsRelay-DSH install
+npx --yes github:TinyPandaGame/SpecsRelay-DSH install --app "/Applications/DSH Desktop.app"
 ```
 
-安装器只识别 DSH Desktop。macOS 以 `CFBundleIdentifier` 为准，Windows 读取解包后的应用元数据；应用名称相同不代表受支持。非标准路径可增加 `--app <path>`，`--dry-run` 只显示识别和安装计划。
+macOS 以 `CFBundleIdentifier` 识别，Windows 读取解包后的应用元数据。应用名称相同不足以确认支持；`--dry-run` 只显示安装计划。安装到 `desktop` profile，默认 `DSH_HOME` 为 `~/.dsh`，可通过环境变量或 `--dsh-home` 指定。
 
-| 项目 | 值 |
-| --- | --- |
-| macOS 应用标识 | `ai.deepseek.dsh.desktop` |
-| 安装 profile | `desktop` |
-| 默认 DSH_HOME | `~/.dsh`，可通过 `DSH_HOME` 或 `--dsh-home` 指定 |
-| 应用资源布局 | `app` 或 `app.asar.unpacked` |
-| 原生网页服务 | DSH Desktop 提供的 `desktopWebPanels` |
+安装器检查 `./web-panels` 导出和 `lib/web-panels.js`；缺失时停止，不修改应用。社区上游原版 2.0.13 与配套构建的区别见[修复说明](desktop-native-repair.md)。该补丁不适用于 DeepSeek 官方桌面端。
 
-安装器通过应用内置的 DSH 命令安装插件，不修改客户端可执行文件。客户端本身必须包含可用的原生网页服务。
-
-安装器还检查应用包的 `./web-panels` 导出与 `lib/web-panels.js` 文件。仅应用标识或版本号匹配不足以通过；缺少能力时，真实安装与 `--dry-run` 都会停止。该检查不替代实际启动验证。官方 2.0.13 与配套修复版的区别及源码补丁见[修复说明](desktop-native-repair.md)。
-
-## 原生网页与布局
+## 社区版原生网页与布局
 
 左侧栏底部按“导入会话 → SpecsRelay → 手机连接 → 设置”排列（仅显示已启用的入口）。SpecsRelay 使用 `sidebar.footer.action` 插槽，排在会话导入入口之后。
 

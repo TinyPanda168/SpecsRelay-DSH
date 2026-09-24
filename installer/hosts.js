@@ -16,6 +16,15 @@ export const HOSTS = [
       "Contents/Resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js",
       "resources/app/node_modules/@deepseek-ai/dsh/lib/bin.js"
     ]
+  },
+  {
+    id: "deepseek-harness-official",
+    name: "DeepSeek Harness（官方桌面端）",
+    bundleId: "com.deepseek.dsh",
+    profile: "desktop",
+    installMethod: "desktop-ui",
+    dshHome: ({ home, environment }) => environment.DSH_HOME || join(home, ".dsh"),
+    dshBins: []
   }
 ];
 
@@ -105,6 +114,15 @@ export function resolveHostInstallation(host, appPath, {
   bundleExecutable
 } = {}) {
   const root = applicationRoot(appPath, platform);
+  if (host.installMethod === "desktop-ui") {
+    const executable = executableFor(appPath, platform, bundleExecutable);
+    if (!existsSync(executable)) throw new Error(`${host.name} 的运行程序不存在：${executable}`);
+    return {
+      hostId: host.id, hostName: host.name, appPath, profile: host.profile,
+      dshHome: dshHome || host.dshHome({ home, environment, platform }),
+      executable, installMethod: "desktop-ui"
+    };
+  }
   const dshBin = firstExisting(root, host.dshBins);
   const executable = executableFor(appPath, platform, bundleExecutable);
   if (!dshBin) {
@@ -203,10 +221,12 @@ export function detectHostInstallations({
       : platform === "win32"
         ? windowsApplications(environment, extraRoots)
         : [];
+  const identifiedApps = candidates.map((appPath) => ({ appPath, identified: identifyHost(appPath, { platform }) }))
+    .filter(({ identified }) => identified);
+  // Both clients may share ~/.dsh; let official Desktop own that profile's changes.
+  const officialApps = identifiedApps.filter(({ identified }) => identified.host.installMethod === "desktop-ui");
   const installations = [];
-  for (const appPath of candidates) {
-    const identified = identifyHost(appPath, { platform });
-    if (!identified) continue;
+  for (const { appPath, identified } of officialApps.length ? officialApps : identifiedApps) {
     installations.push(
       resolveHostInstallation(identified.host, appPath, {
         platform,
