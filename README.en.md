@@ -1,4 +1,4 @@
-# SpecsRelay for DeepSeek Harness (Jev-enhanced)
+# SpecsRelay for DeepSeek Harness
 
 [简体中文](README.md) | English
 
@@ -13,12 +13,12 @@ A plugin for [DSH Desktop by anywhere-labs](https://github.com/anywhere-labs/dee
 ## Highlights
 
 - **Organize in one click**: extract goals, constraints and acceptance criteria, selecting clarification, coverage checks and revision reconciliation according to the content.
-- **Optional Jev enhancement**: select evidence from long conversations and choose an auxiliary organizer model for session continuation.
+- **Switch enhancement services**: choose Off, Jev or your own Laya service for long-conversation evidence selection; the existing organizer writes the requirements.
 - **Clarify as you go**: take open questions back to DeepSeek, then continue development.
 - **Continue long tasks**: hand off current progress to a new session in the same project.
 - **Reuse your model**: the default workflow uses your DSH model without entering its Key again.
 
-Both Jev features are off by default. Enabling them requires a TypeSafe API Key and sends relevant conversation content to TypeSafe. [Setup and data handling](docs/jev-features.en.md)
+Enhancement is off by default. Expand its sidebar settings, choose a service and save. Jev requires a TypeSafe Key; Laya takes a running service URL and optional model name. Failures fall back to the full conversation. Jev continuation routing is enabled separately. [Setup and data handling](docs/jev-features.en.md)
 
 ## Quick install
 
@@ -38,7 +38,7 @@ Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#q
 
 ## Documentation
 
-[User guide](docs/usage.en.md) · [Optional Jev features (off by default)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [Changelog](CHANGELOG.en.md)
+[User guide](docs/usage.en.md) · [Optional enhancement (Jev / Laya)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [Changelog](CHANGELOG.en.md)
 
 [External reference watchlist (Chinese)](docs/external-reference-watchlist.md): tracked sources, version baselines, and selective adoption assessments.
 

@@ -1,14 +1,26 @@
-# Jev 可选功能配置
+# 可选增强配置：Jev 与 Laya
 
 [返回 README](../README.md#文档) · 简体中文 | [English](jev-features.en.md)
 
-Jev 提供长对话证据筛选和会话接续分流。**两项能力默认关闭，分别开启**；不配置 Jev 也能使用完整的需求整理流程。
+长对话增强可选 **关闭 / Jev / Laya**，默认关闭。Jev 另外提供独立的会话接续分流；不启用任何增强也能使用完整的需求整理流程。
 
 ## 长对话增强
 
 ### 开启与关闭
 
-自行申请 TypeSafe API Key，在桌面客户端的 `$DSH_HOME/.env` 或启动 DSH 的环境变量中设置：
+在 SpecsRelay 右侧展开 **长对话增强**，选择服务并点击 **保存增强设置**，下次整理立即使用新设置，不必重启。切换服务会保留已保存的 Laya 地址与模型名称。
+
+| 选择 | 配置 | 行为 |
+| --- | --- | --- |
+| 关闭 | 无 | 直接用完整对话整理，不调用增强服务 |
+| Jev | DSH 凭据服务或环境中的 TypeSafe Key | 长对话片段发往 TypeSafe |
+| Laya | 已启动的服务地址、可选模型名称 | 长对话片段仅发往所选 Laya 服务，不尝试 Jev |
+
+服务由用户自行选择。插件不会下载模型、安装 Python 或启动推理进程。Laya 的本地权重目录由服务端加载，不能把文件目录填成 HTTP 服务地址。
+
+界面配置保存在插件本地状态目录（默认 `~/.specsrelay/workspace-state`）中，只保存服务选择、地址与模型名称，不保存密钥；适用于当前 DSH 插件实例的所有项目。**保存过的界面配置优先于环境变量，包括“关闭”**。正在运行的整理保持开始时的选择；新设置用于下一次整理。
+
+尚未保存界面设置时，兼容原环境开关。使用 Jev 可自行申请 TypeSafe API Key，在桌面客户端的 `$DSH_HOME/.env` 或启动 DSH 的环境变量中设置：
 
 ```sh
 SPECSRELAY_JEV_LONG_CONTEXT=1
@@ -19,12 +31,32 @@ TYPESAFE_API_KEY=你的_TypeSafe_API_Key
 
 > **开启前确认**：筛选会向 TypeSafe 发送对话原文片段，累计可能涉及大部分对话，包括用户内容。密钥遮蔽不能移除所有敏感信息，请只对允许发送给 TypeSafe 的对话启用。
 
-把 `SPECSRELAY_JEV_LONG_CONTEXT` 改为 `0` 或移除即可关闭。
+未保存界面设置时，把 `SPECSRELAY_JEV_LONG_CONTEXT` 改为 `0` 或移除即可关闭；保存过界面设置后请在界面选择 **关闭** 并保存。修改启动环境需要重启客户端。
+
+### Laya 接口配置
+
+按 [Laya 上游说明](https://github.com/NandhaKishorM/laya#self-hosting-http-server-jev-compatible)自行部署服务，然后在界面填写：
+
+- **服务地址**：例如 `http://127.0.0.1:8000`，也接受带 `/v1` 或完整 `/v1/systemone` 的地址。接口为 `POST /v1/systemone`，不使用 OpenAI chat completions 格式。
+- **模型名称**：默认 `multilingual`；字段原样作为请求的 `model` 发送。留空时由服务端选择。上游原版支持 `english`、`multilingual`、`typed-decisions` 等已注册名称；任意权重路径不会被原版 HTTP 服务自动加载，自定义名称取决于你部署的服务。
+- **鉴权（可选）**：服务要求 Bearer Key 时，在 DSH 凭据服务或启动环境设置 `SPECSRELAY_LAYA_API_KEY`。该凭据独立于 TypeSafe Key，不会从 Jev 配置借用。不要把密钥写进服务地址。
+
+也可在尚未保存界面配置时使用环境变量：
+
+```sh
+SPECSRELAY_ENHANCEMENT_PROVIDER=laya
+SPECSRELAY_LAYA_URL=http://127.0.0.1:8000
+SPECSRELAY_LAYA_MODEL=multilingual
+```
+
+`SPECSRELAY_ENHANCEMENT_PROVIDER` 接受 `off`、`jev`、`laya`，优先于旧的 `SPECSRELAY_JEV_LONG_CONTEXT`。配置了服务地址不会自动启用增强。
+
+本插件只实现调用接口，没有打包 Laya SDK 或模型。已通过本地模拟 HTTP 服务验证协议、切换与回退；真实 Laya 模型的中文筛选质量及速度尚未验收。
 
 ### 整理过程
 
 1. **获取完整对话**：整理模型根据开头、最近讨论及本次澄清，确定目标、已确认决策、约束、验收标准和待确认问题的查找重点。
-2. **筛选原文证据**：[Jev / TypeSafe System One](https://docs.typesafe.ai/agent-skill) 分批判断片段是否有用。
+2. **筛选原文证据**：所选 Jev 或 Laya 服务分批判断片段是否有用。
 3. **生成需求**：原整理模型按原顺序读取保留片段，再理解并写成 Specs。
 
 整个过程包含在一次 **整理当前对话** 中，无需单独压缩或选择压缩比例。它不选择整理模型，也不改变 Coding Agent 主模型。
@@ -41,21 +73,27 @@ TYPESAFE_API_KEY=你的_TypeSafe_API_Key
 
 | 情况 | 处理方式 |
 | --- | --- |
-| 已开启、Key 可用、对话达到 24,000 字符 | 自动执行证据筛选 |
-| 短对话、未开启、没有 Key 或角色标题无法可靠识别 | 直接使用完整对话整理 |
+| 已选服务、对话达到 24,000 字符；Jev 还需有 Key | 自动执行证据筛选 |
+| 短对话、未开启、Jev 缺 Key 或角色标题无法可靠识别 | 直接使用完整对话整理 |
 | 规划或筛选失败、超时、返回无效 | 丢弃本次所有筛选结果，回到完整原文整理 |
+| Laya 单个候选及上下文超过请求预算 | 保留该候选原文，不截断上下文后判断 |
+| 筛选后的长度未减少 | 使用完整原文 |
 
 400,000 字符导入上限及整理模型自身的上下文限制仍然适用。Jev 的中文筛选效果仍需用实际对话评估；自动化测试验证调用顺序、原文保留和失败回退，不代表真实模型准确率或节省比例。
 
 ### 高级参数
 
-普通用户无需设置。维护者可通过以下环境变量调整；无效配置会明确报错。
+普通用户无需设置。原有触发长度与总时限同时适用于 Jev 和 Laya。
 
 | 变量 | 用途 | 默认值 | 范围 |
 | --- | --- | --- | --- |
 | `SPECSRELAY_JEV_LONG_CONTEXT_MIN_CHARS` | 触发增强的字符数 | 24,000 | 1,000–400,000 |
 | `SPECSRELAY_JEV_LONG_CONTEXT_TIMEOUT_MS` | 增强阶段总时限，毫秒 | 20,000 | 100–60,000 |
 | `SPECSRELAY_JEV_OMIT_PROBABILITY` | 剔除助手片段的概率阈值 | 0.98 | 0.9–1 |
+| `SPECSRELAY_LAYA_OMIT_PROBABILITY` | Laya 独立的剔除阈值，未经真实模型校准 | 0.995 | 0.9–1 |
+| `SPECSRELAY_LAYA_MAX_REQUEST_BYTES` | Laya 单次请求总字节预算 | 900 | 400–30,000 |
+
+Laya 每次仅判断一个候选，使用较短的判断问题。默认 900 字节预算用于保守控制输入，并非精确 token 计数；放不下的证据直接保留，可能完全不减少对话。上游多语言模型默认 1,024 tokens，Python SDK 的 `max_len` 参数目前未被原版 HTTP 服务转发。只有确认服务实际支持更大输入后才提高字节预算；增大本插件预算不会改变服务端上下文上限。概率阈值分别配置，不表示两种模型的分数已校准或效果相同。
 
 ## 会话接续分流
 
@@ -80,4 +118,6 @@ TYPESAFE_API_KEY=你的_TypeSafe_API_Key
 
 常见密钥和本次 TypeSafe Key 会在长对话切片前遮蔽。两项能力都不主动读取项目文件或工具结果，但粘贴进网页对话的内容可能包含它们。
 
-Key 通过 DSH 凭据服务或启动环境按次读取，只用于鉴权，不作为筛选证据，也不写入插件配置、工作区状态或日志。
+选择 Laya 时，证据规划、候选片段和必要的相邻用户上下文发送到用户填写的 Laya 服务，不发送到 TypeSafe。完整 Specs 仍由 DSH 已配置的整理模型生成，选择本地 Laya 不代表整个整理流程离线。
+
+Key 通过 DSH 凭据服务或启动环境按次读取，只用于鉴权，不作为筛选证据，也不写入插件配置、工作区状态或日志。Laya 接口拒绝重定向；不会因 Laya 失败而切到 Jev。这里的服务选择只控制长对话增强，会话接续分流仍由独立的 `SPECSRELAY_JEV_ROUTER` 开关控制。

@@ -4,6 +4,8 @@
 
 ## 2026-09-24
 
+- **Switch enhancement services**: sidebar settings offer Off / Jev / Laya and take effect on the next organization. Laya takes a service URL and optional model name; the plugin only calls an existing service. Saved UI settings override legacy environment switches; provider credentials are resolved independently and not stored in settings.
+- **Laya HTTP adapter**: support `/v1/systemone` with per-candidate budgets, a separate threshold, full-source fallback and rejected redirects. Never switch to another service on failure. Mock HTTP, persistence and UI-switch tests cover integration, not live-model quality. Implementation scope and the upstream revision are recorded in the [watchlist (Chinese)](docs/external-reference-watchlist.md#laya-接口适配--2026-09-24).
 - **Select organization methods by content**: combine necessary clarification, requirement/acceptance coverage, revision reconciliation and review within the existing organizer's generation. Buttons and the handoff format remain unchanged.
 - **Reduce unnecessary questions**: ask prerequisite decisions first, at most three material questions per round; reassess after answers or revisions and remove answered, withdrawn or irrelevant questions.
 - **Record adoption precisely**: reproduce Superpowers' five-item review checklist with its MIT license; independently write the selected methods inspired by grill-me, Spec-Kit and OpenSpec. Trellis remains a tracked reference. See the [adoption record (Chinese)](docs/external-reference-watchlist.md#实际采用记录--2026-09-24).

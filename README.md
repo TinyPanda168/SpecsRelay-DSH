@@ -1,4 +1,4 @@
-# SpecsRelay for DeepSeek Harness（Jev 增强）
+# SpecsRelay for DeepSeek Harness
 
 简体中文 | [English](README.en.md)
 
@@ -13,12 +13,12 @@
 ## 核心能力
 
 - **一键整理**：从完整对话中提炼目标、约束和验收标准，按内容选用澄清、覆盖检查与修订梳理。
-- **Jev 可选增强**：筛选长对话中的关键证据，为接续会话选择辅助整理模型。
+- **增强服务可切换**：长对话可选关闭、Jev 或自备 Laya 服务，筛选后由原整理模型生成需求。
 - **随时澄清**：把待确认问题带回 DeepSeek，讨论后继续开发。
 - **接续长任务**：整理当前进度，交给同一项目的新会话。
 - **复用已有模型**：默认使用 DSH 已配置的模型，无需重复填 Key。
 
-Jev 两项能力默认关闭；开启需 TypeSafe API Key，并会向 TypeSafe 发送相关对话内容。[配置与数据说明](docs/jev-features.md)
+增强默认关闭。在侧栏展开“长对话增强”即可选择服务并保存；Jev 需要 TypeSafe Key，Laya 填写已启动的服务地址与可选模型名称。失败时使用完整对话整理。Jev 的会话接续分流另行开启。[配置与数据说明](docs/jev-features.md)
 
 ## 快速安装
 
@@ -38,7 +38,7 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 
 ## 文档
 
-[使用指南](docs/usage.md) · [可选 Jev 增强（默认关闭）](docs/jev-features.md) · [数据与安全](docs/usage.md#数据与安全) · [更新记录](CHANGELOG.md)
+[使用指南](docs/usage.md) · [可选增强配置（Jev / Laya）](docs/jev-features.md) · [数据与安全](docs/usage.md#数据与安全) · [更新记录](CHANGELOG.md)
 
 [外部来源更新与借鉴清单](docs/external-reference-watchlist.md)：记录跟踪来源、版本基线和按需采用判断。
 

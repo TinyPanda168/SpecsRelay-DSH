@@ -64,13 +64,13 @@ Continue using **Organize current conversation** without selecting a framework, 
 
 ### Optional long-conversation enhancement
 
-For long discussions where earlier decisions matter, the organizer plans what to look for, Jev selects original evidence, and the original organizer writes the requirements. You still select **Organize current conversation** once.
+For long discussions where earlier decisions matter, the organizer plans what to look for, your selected Jev or Laya service selects original evidence, and the original organizer writes the requirements. You still select **Organize current conversation** once.
 
-- **Off by default**; requires your own TypeSafe API Key when enabled.
+- **Off by default**. Expand **Long-conversation enhancement** in the sidebar, choose Off, Jev or Laya, then save. Jev uses a TypeSafe Key; Laya takes a running service URL and optional model name.
 - Once enabled, conversations of **24,000 characters or more** are enhanced automatically; short conversations use the full text directly.
 - Planning or screening failures return to full-source organization. Your Coding Agent's main model stays unchanged.
 
-> **Data notice:** enhancement sends conversation fragments to TypeSafe, potentially covering most of the conversation. Credential masking does not remove every kind of sensitive information. Enable it only for conversations you allow TypeSafe to receive.
+> **Data notice:** enhancement sends conversation fragments to the selected TypeSafe or Laya service, potentially covering most of the conversation. Credential masking does not remove every kind of sensitive information. Enable it only for conversations you allow that service to receive.
 
 [Setup, selection rules and advanced parameters →](jev-features.en.md#long-conversation-enhancement)
 
@@ -122,7 +122,7 @@ When the Agent needs a product decision, discuss it in DeepSeek and bring your a
 
 - Page capture runs only after you select **Organize current conversation**, **Start clarification**, or **Read new discussion**. Loading and resizing do not capture content.
 - Requirement organization, clarification and revision use the model configured in DSH.
-- Both Jev features are off by default. See [Jev data handling](jev-features.en.md#data-sent-to-typesafe) for what enabling them sends.
+- Long-conversation enhancement and Jev continuation routing are off by default. See [enhancement data handling](jev-features.en.md#data-sent-to-typesafe) for what the selected service receives.
 
 ### What is stored locally
 

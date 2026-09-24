@@ -1349,6 +1349,78 @@ ${listLines(handoff.open_questions)}`;
         );
       }
 
+      function EnhancementSettings({ busy, onSaving }) {
+        const [state, setState] = useState({ settings: null, draft: null, error: "", loading: true, saving: false });
+        const [reload, setReload] = useState(0);
+        useEffect(() => {
+          let active = true;
+          setState((current) => ({ ...current, loading: true, error: "" }));
+          fetch(`${API}/enhancement-settings`, { cache: "no-store", signal: AbortSignal.timeout(10000) })
+            .then(async (response) => {
+              const data = await response.json();
+              if (!response.ok || !data.settings) throw new Error(data.error || "无法读取增强设置");
+              if (active) setState({ settings: data.settings, draft: data.settings, error: "", loading: false, saving: false });
+            })
+            .catch((error) => {
+              if (active) setState((current) => ({ ...current, loading: false, error: error.message || "无法读取增强设置" }));
+            });
+          return () => { active = false; };
+        }, [reload]);
+        const disabled = Boolean(busy) || state.loading || state.saving;
+        const labels = { off: "关闭", jev: "Jev", laya: "Laya" };
+        const fieldStyle = {
+          background: "var(--dsw-alias-bg-layer-2)", border: "1px solid var(--dsw-alias-border-subtle)",
+          borderRadius: 8, boxSizing: "border-box", color: "var(--dsw-alias-text-primary)",
+          font: "inherit", minWidth: 0, padding: "8px 10px", width: "100%"
+        };
+        const edit = (field) => (event) => setState((current) => ({
+          ...current, draft: { ...current.draft, [field]: event.target.value }, error: ""
+        }));
+        const save = async () => {
+          if (disabled || !state.draft) return;
+          setState((current) => ({ ...current, saving: true, error: "" }));
+          onSaving(true);
+          try {
+            const response = await fetch(`${API}/enhancement-settings`, {
+              method: "PUT", headers: { "content-type": "application/json" },
+              body: JSON.stringify(state.draft), signal: AbortSignal.timeout(10000)
+            });
+            const data = await response.json();
+            if (!response.ok || !data.settings) throw new Error(data.error || "增强设置保存失败");
+            setState({ settings: data.settings, draft: data.settings, error: "", loading: false, saving: false });
+          } catch (error) {
+            setState((current) => ({ ...current, saving: false, error: error.message || "增强设置保存失败" }));
+          } finally { onSaving(false); }
+        };
+        const changed = state.draft && JSON.stringify(state.draft) !== JSON.stringify(state.settings);
+        return h("details", { style: { border: "1px solid var(--dsw-alias-border-subtle)", borderRadius: 9, padding: 10, fontSize: 12, minWidth: 0 } },
+          h("summary", { style: { cursor: "pointer" } }, `长对话增强 · ${labels[state.settings?.provider] || "设置"}`),
+          h("div", { style: { display: "grid", gap: 10, paddingTop: 10, minWidth: 0 } },
+            h("span", null, "短对话直接整理；增强不可用时使用完整对话。保存后，下次整理生效。"),
+            state.draft && h("label", null, "增强服务",
+              h("select", { "aria-label": "增强服务", value: state.draft.provider, disabled, style: fieldStyle, onChange: edit("provider") },
+                h("option", { value: "off" }, "关闭"), h("option", { value: "jev" }, "Jev"), h("option", { value: "laya" }, "Laya")
+              )
+            ),
+            state.draft?.provider === "jev" && h("span", null, "使用 DSH 已配置的 TypeSafe 密钥；Jev 会接收本次对话片段。未配置密钥时直接整理完整对话。"),
+            state.draft?.provider === "laya" && h(React.Fragment, null,
+              h("label", null, "Laya 服务地址",
+                h("input", { "aria-label": "Laya 服务地址", type: "url", value: state.draft.layaUrl, disabled, style: fieldStyle,
+                  placeholder: "http://127.0.0.1:8000", onChange: edit("layaUrl"), spellCheck: false })
+              ),
+              h("label", null, "Laya 模型名称（可选）",
+                h("input", { "aria-label": "Laya 模型名称", value: state.draft.layaModel, disabled, style: fieldStyle,
+                  placeholder: "multilingual", onChange: edit("layaModel"), spellCheck: false })
+              ),
+              h("span", null, "填写已启动的 Laya 服务地址，对话片段会发往该服务。本地模型文件由服务端加载。")
+            ),
+            state.error && h("div", { role: "alert" }, state.error),
+            !state.draft && !state.loading && h(Button, { size: "sm", variant: "ghost", disabled: Boolean(busy), onClick: () => setReload((value) => value + 1) }, "重试读取设置"),
+            state.draft && h(Button, { size: "sm", disabled: disabled || !changed, onClick: save }, state.saving ? "正在保存…" : changed ? "保存增强设置" : "当前设置已生效")
+          )
+        );
+      }
+
       function SpecsRelayDeepSeekView({
         dshDesktop,
         loadDraft,
@@ -2250,6 +2322,7 @@ ${listLines(handoff.open_questions)}`;
                         ),
                         h(Pill, { active: true, style: { marginLeft: "auto" } }, "DSH 提供")
                       ),
+                      h(EnhancementSettings, { busy, onSaving: (saving) => setBusy(saving ? "enhancement-settings" : "") }),
                       message &&
                         h(
                           "div",

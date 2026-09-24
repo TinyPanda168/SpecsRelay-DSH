@@ -40,6 +40,11 @@ import {
   EVIDENCE_PLAN_SYSTEM,
   enhanceLongConversation
 } from "./lib/long-conversation.js";
+import {
+  ENHANCEMENT_SETTINGS_KEY,
+  normalizeEnhancementSettings,
+  resolveEnhancementSettings
+} from "./lib/enhancement-settings.js";
 
 export const name = "specsrelay-dsh-deepseek";
 export const inject = ["agents", "llm", "skills", "webServer"];
@@ -793,9 +798,10 @@ ${revisionInstruction.replaceAll(
  *
  * @param {object} ctx DSH context exposing agents, LLM, and skill services.
  * @param {{ sessionId: string, text: string, previousHandoff?: object, clarifications?: object[], revisionInstruction?: string }} request Imported context request.
+ * @param {{ enhancement?: object }} options Host-loaded enhancement settings; omitted values use the launch environment.
  * @returns {Promise<{ handoff: object, provider: string, model: string, warnings: string[], errors: string[], requiresClarification: boolean, skill: { name: string, provider: string } }>}
  */
-export async function organizeImportedContext(ctx, request) {
+export async function organizeImportedContext(ctx, request, { enhancement } = {}) {
   const sessionId = optionalBoundedString(request?.sessionId, "Session id", 160);
   const importedText = boundedString(
     request?.text,
@@ -813,6 +819,7 @@ export async function organizeImportedContext(ctx, request) {
   const fullSourcePrompt = buildOrganizerSourcePrompt(importedText, request);
   const evidence = await enhanceLongConversation(ctx, importedText, {
     signal,
+    settings: enhancement,
     plan: (excerpt, planSignal) => generateOrganizerOutput(
       ctx,
       fallbackRoute,
@@ -1061,6 +1068,9 @@ export async function prepareContinuation(ctx, request) {
 }
 
 function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCompactedSessions) {
+  const readEnhancementSettings = async () => resolveEnhancementSettings(
+    (await workspaces.read(ENHANCEMENT_SETTINGS_KEY))?.state
+  );
   const requireBrowserClient = (req, res) => {
     if (isBrowserRequestAllowed(req)) {
       return true;
@@ -1250,6 +1260,29 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
       }
     }
   });
+  const disposeEnhancementSettings = ctx.webServer.register({
+    kind: "exact",
+    path: "/specsrelay/v1/enhancement-settings",
+    handler: async (req, res) => {
+      if (!requireBrowserClient(req, res)) return;
+      try {
+        if (req.method === "GET") {
+          jsonResponse(res, 200, { settings: await readEnhancementSettings() });
+          return;
+        }
+        if (req.method === "PUT") {
+          const settings = normalizeEnhancementSettings(await readJsonBody(req, 8192));
+          await workspaces.write(ENHANCEMENT_SETTINGS_KEY, settings);
+          jsonResponse(res, 200, { settings });
+          return;
+        }
+        res.setHeader("allow", "GET, PUT");
+        jsonResponse(res, 405, { error: "Method not allowed." });
+      } catch (error) {
+        jsonResponse(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  });
   const disposeOrganizer = ctx.webServer.register({
     kind: "exact",
     path: "/specsrelay/v1/organize",
@@ -1262,7 +1295,8 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
       }
       try {
         const value = await readJsonBody(req, MAX_ORGANIZER_BODY_BYTES);
-        jsonResponse(res, 200, await organizeImportedContext(ctx, value));
+        const enhancement = await readEnhancementSettings();
+        jsonResponse(res, 200, await organizeImportedContext(ctx, value, { enhancement }));
       } catch (error) {
         jsonResponse(res, 400, {
           error: error instanceof Error ? error.message : String(error)
@@ -1429,6 +1463,7 @@ function registerBrowserRoutes(ctx, inbox, captures, browser, workspaces, autoCo
     disposeContinuationStatus();
     disposeOrganizerStatus();
     disposeOrganizer();
+    disposeEnhancementSettings();
     disposeWorkspaceState();
     disposeReceipt();
     disposeBrowserCapture();
