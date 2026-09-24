@@ -1,5 +1,13 @@
 # Third-party notices
 
+## DSH Desktop native-page companion patch
+
+- Project: <https://github.com/anywhere-labs/deepseek-harness-desktop>
+- Upstream commit: `a7825021a227bc5776525996fc5a794b23d707ac` (`v2.0.13`)
+- License: MIT; copyright 2026 Anywhere Labs
+
+The source diff in `docs/desktop-patches/` includes upstream context and SpecsRelay's native-page additions for both desktop channels. It is maintained as a companion patch, not shipped as an upstream release or loaded by the SpecsRelay plugin. The upstream license is preserved at `third_party/dsh-desktop/LICENSE`; build and upgrade instructions are in [desktop repair notes](docs/desktop-native-repair.md).
+
 ## Superpowers requirement review checklist
 
 - Project: <https://github.com/obra/superpowers>

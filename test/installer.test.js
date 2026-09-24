@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { mkdtempSync } from "node:fs";
-import { HOSTS, identifyHost, resolveHostInstallation } from "../installer/hosts.js";
+import { HOSTS, identifyHost, resolveHostInstallation, assertNativeWebPanels } from "../installer/hosts.js";
 import { installCommand, installDetected } from "../installer/install.js";
 
 test("the installer supports only DSH Desktop", () => {
@@ -79,6 +79,13 @@ for (const platform of ["darwin", "win32"]) {
         mkdirSync(join(executable, ".."), { recursive: true });
         writeFileSync(dshBin, "");
         writeFileSync(executable, "");
+        const packageRoot = join(root, resources, layout);
+        mkdirSync(join(packageRoot, "lib"), { recursive: true });
+        writeFileSync(join(packageRoot, "package.json"), JSON.stringify({
+          name: "dsh-plugin-desktop",
+          exports: { "./web-panels": { default: "./lib/web-panels.js" } }
+        }));
+        writeFileSync(join(packageRoot, "lib/web-panels.js"), "");
         const installation = resolveHostInstallation(host, platform === "darwin" ? root : executable, {
           platform,
           bundleExecutable: "DSH Desktop",
@@ -99,3 +106,30 @@ for (const platform of ["darwin", "win32"]) {
     });
   }
 }
+
+test("a stock Desktop update without native web panels is rejected before installing a plugin", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specsrelay-installer-"));
+  try {
+    const app = join(root, "resources/app");
+    const executable = join(root, "DSH Desktop.exe");
+    mkdirSync(join(app, "node_modules/@deepseek-ai/dsh/lib"), { recursive: true });
+    writeFileSync(join(app, "node_modules/@deepseek-ai/dsh/lib/bin.js"), "");
+    writeFileSync(executable, "");
+    writeFileSync(join(app, "package.json"), JSON.stringify({ name: "dsh-plugin-desktop", version: "2.0.13" }));
+    let launched = false;
+    await assert.rejects(installDetected({
+      platform: "win32", appPaths: [executable],
+      spawnProcess: () => { launched = true; throw new Error("Must not launch"); }
+    }), /原生网页支持/);
+    assert.equal(launched, false);
+    writeFileSync(join(app, "package.json"), JSON.stringify({
+      name: "dsh-plugin-desktop", exports: { "./web-panels": "./lib/web-panels.js" }
+    }));
+    assert.throws(() => assertNativeWebPanels(executable, "win32"), /原生网页支持/);
+    mkdirSync(join(app, "lib"));
+    writeFileSync(join(app, "lib/web-panels.js"), "");
+    assert.doesNotThrow(() => assertNativeWebPanels(executable, "win32"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -22,6 +22,8 @@ Enhancement is off by default. Expand its sidebar settings, choose a service and
 
 ## Quick install
 
+The client must include the `desktopWebPanels` native service. Stock official 2.0.13 does not include it; the installer now rejects it before changing the profile. See [desktop repair and upgrade checks](docs/desktop-native-repair.md).
+
 Install and start DSH Desktop, configure a working model, then run:
 
 ```sh

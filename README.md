@@ -22,6 +22,8 @@
 
 ## 快速安装
 
+客户端须包含 `desktopWebPanels` 原生网页支持。未经配套补丁的官方 2.0.13 不包含这项能力；安装器会在修改配置前拦截。见[桌面修复与升级检查](docs/desktop-native-repair.md)。
+
 先安装并启动 DSH Desktop、配置可用模型，再运行：
 
 ```sh

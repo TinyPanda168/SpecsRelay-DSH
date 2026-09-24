@@ -1,0 +1,2472 @@
+diff --git a/dsh-plugin-desktop-beta/package.json b/dsh-plugin-desktop-beta/package.json
+index 9ba033ee6..1bad2b0da 100644
+--- a/dsh-plugin-desktop-beta/package.json
++++ b/dsh-plugin-desktop-beta/package.json
+@@ -71,7 +71,11 @@
+       "types": "./lib/types/updates.d.ts",
+       "default": "./lib/updates.js"
+     },
+-    "./package.json": "./package.json"
++    "./package.json": "./package.json",
++    "./web-panels": {
++      "types": "./lib/types/web-panels.d.ts",
++      "default": "./lib/web-panels.js"
++    }
+   },
+   "files": [
+     "build/app-icon.png",
+diff --git a/dsh-plugin-desktop-beta/src/electron-runtime.ts b/dsh-plugin-desktop-beta/src/electron-runtime.ts
+index 4ff60e7cd..3e16f3bed 100644
+--- a/dsh-plugin-desktop-beta/src/electron-runtime.ts
++++ b/dsh-plugin-desktop-beta/src/electron-runtime.ts
+@@ -7,6 +7,7 @@ import {
+   net,
+   Notification,
+   shell,
++  WebContentsView,
+ } from 'electron'
+ import { spawn } from 'node:child_process'
+ import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
+@@ -70,6 +71,73 @@ import {
+   FileMainWindowStateStore,
+   type MainWindowStateStore,
+ } from './main-window-state.ts'
++import type {
++  DesktopWebPanelBounds,
++  DesktopWebPanelRegistration,
++  DesktopWebPanelSpec,
++  DesktopWebPanelStatus,
++} from './web-panels.ts'
++
++const WEB_PANEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/u
++const MAX_CAPTURE_EXPRESSION_CHARS = 1_000_000
++
++interface ResolvedWebPanelSpec {
++  readonly id: string
++  readonly url: string
++  readonly allowedOrigins: ReadonlySet<string>
++  readonly partition: string
++}
++
++interface NativeWebPanelRecord {
++  readonly spec: ResolvedWebPanelSpec
++  view: WebContentsView | undefined
++  state: DesktopWebPanelStatus['state']
++  error: string | undefined
++  loadTask: Promise<DesktopWebPanelStatus> | undefined
++  disposed: boolean
++}
++
++/** Validate remote-content policy before a native view can be registered. */
++function resolveWebPanelSpec(spec: DesktopWebPanelSpec): ResolvedWebPanelSpec {
++  if (!WEB_PANEL_ID_PATTERN.test(spec.id)) {
++    throw new Error('dsh-plugin-desktop-beta: Web panel id must use lowercase letters, digits, dots, underscores, or hyphens')
++  }
++  const initial = new URL(spec.url)
++  if (initial.protocol !== 'https:') {
++    throw new Error('dsh-plugin-desktop-beta: Web panel URL must use HTTPS')
++  }
++  const allowedOrigins = new Set<string>()
++  for (const value of spec.allowedOrigins) {
++    const origin = new URL(value)
++    if (origin.protocol !== 'https:' || origin.origin !== value) {
++      throw new Error('dsh-plugin-desktop-beta: Web panel origins must be exact HTTPS origins')
++    }
++    allowedOrigins.add(origin.origin)
++  }
++  if (!allowedOrigins.has(initial.origin)) {
++    throw new Error('dsh-plugin-desktop-beta: Web panel initial origin is not allowed')
++  }
++  return {
++    id: spec.id,
++    url: initial.href,
++    allowedOrigins,
++    partition: `persist:dsh-web-panel-${spec.id}`,
++  }
++}
++
++/** Reject non-integer or empty rectangles before they reach Electron. */
++function validateWebPanelBounds(bounds: DesktopWebPanelBounds): DesktopWebPanelBounds {
++  const entries = Object.entries(bounds) as Array<[keyof DesktopWebPanelBounds, number]>
++  for (const [name, value] of entries) {
++    if (!Number.isInteger(value) || value < 0) {
++      throw new Error(`dsh-plugin-desktop-beta: Web panel ${name} must be a non-negative integer`)
++    }
++  }
++  if (bounds.width === 0 || bounds.height === 0) {
++    throw new Error('dsh-plugin-desktop-beta: Web panel bounds must not be empty')
++  }
++  return { ...bounds }
++}
+
+ /**
+  * Read the desktop package version instead of Electron's development-app version.
+@@ -115,6 +183,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+   private rendererBootHealthy = false
+   private profileCreateWindow: ProfileCreateWindow | undefined
+   private restartRequest: Promise<void> | undefined
++  private readonly webPanels = new Map<string, NativeWebPanelRecord>()
+
+   constructor(
+     private readonly restart: (target?: 'recovery' | 'safe-mode') => Promise<void>,
+@@ -170,6 +239,33 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+     return this.rendererHealthGate?.failureReason
+   }
+
++  /** @inheritdoc */
++  registerWebPanel(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration {
++    const resolved = resolveWebPanelSpec(spec)
++    if (this.webPanels.has(resolved.id)) {
++      throw new Error(`dsh-plugin-desktop-beta: Web panel ${JSON.stringify(resolved.id)} is already registered`)
++    }
++    const record: NativeWebPanelRecord = {
++      spec: resolved,
++      view: undefined,
++      state: 'idle',
++      error: undefined,
++      loadTask: undefined,
++      disposed: false,
++    }
++    this.webPanels.set(resolved.id, record)
++    return {
++      id: resolved.id,
++      status: () => this.webPanelStatus(record),
++      ready: () => this.readyWebPanel(record),
++      show: bounds => this.showWebPanel(record, bounds),
++      hide: () => { this.hideWebPanel(record) },
++      reload: () => this.reloadWebPanel(record),
++      evaluate: expression => this.evaluateWebPanel(record, expression),
++      dispose: () => this.disposeWebPanel(record),
++    }
++  }
++
+   /** Arm the health gate immediately before the native shell starts loading. */
+   beginRendererBootMonitoring(
+     options: DesktopRendererHealthGateOptions,
+@@ -208,6 +304,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+         try {
+           this.profileCreateWindow?.close()
+           this.profileCreateWindow = undefined
++          this.closeWebPanelViews()
+           await this.generation?.release()
+         } finally {
+           this.generation = undefined
+@@ -287,7 +384,10 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+           this.logError(`dsh-plugin-desktop: failed to resolve update installer cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
+         })
+       }).catch((cause: unknown) => {
+-        if (this.generation === generation) this.generation = undefined
++        if (this.generation === generation) {
++          this.closeWebPanelViews()
++          this.generation = undefined
++        }
+         throw cause
+       })
+     }
+@@ -304,6 +404,190 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+     this.generation?.notifyAttention(notification)
+   }
+
++  /** Return a copied status without exposing Electron objects. */
++  private webPanelStatus(record: NativeWebPanelRecord): DesktopWebPanelStatus {
++    this.assertWebPanelActive(record)
++    const currentUrl = record.view?.webContents.getURL() || record.spec.url
++    return {
++      state: record.state,
++      url: currentUrl,
++      ...(record.error === undefined ? {} : { error: record.error }),
++    }
++  }
++
++  /** Create one sandboxed remote view and attach its navigation policy. */
++  private createWebPanelView(record: NativeWebPanelRecord): WebContentsView {
++    this.assertWebPanelActive(record)
++    const existing = record.view
++    if (existing !== undefined && !existing.webContents.isDestroyed()) return existing
++    const generation = this.generation
++    if (generation === undefined) {
++      throw new Error('dsh-plugin-desktop-beta: native window is not ready for Web panels')
++    }
++    const view = new WebContentsView({
++      webPreferences: {
++        contextIsolation: true,
++        nodeIntegration: false,
++        partition: record.spec.partition,
++        sandbox: true,
++        webSecurity: true,
++      },
++    })
++    view.setVisible(false)
++    const navigate = (event: Electron.Event<{ url: string, isMainFrame: boolean }>): void => {
++      if (!event.isMainFrame) return
++      try {
++        if (record.spec.allowedOrigins.has(new URL(event.url).origin)) return
++      } catch {
++        // Malformed main-frame targets are rejected below.
++      }
++      event.preventDefault()
++    }
++    view.webContents.on('will-frame-navigate', navigate)
++    view.webContents.on('will-redirect', navigate)
++    view.webContents.on('will-attach-webview', event => { event.preventDefault() })
++    view.webContents.setWindowOpenHandler(({ url }) => {
++      try {
++        const target = new URL(url)
++        if (record.spec.allowedOrigins.has(target.origin)) {
++          void view.webContents.loadURL(target.href).catch((cause: unknown) => {
++            this.logError(`dsh-plugin-desktop-beta: Web panel navigation failed: ${cause instanceof Error ? cause.message : String(cause)}`)
++          })
++        } else if (target.protocol === 'https:' || target.protocol === 'http:' || target.protocol === 'mailto:') {
++          void shell.openExternal(target.href).catch((cause: unknown) => {
++            this.logError(`dsh-plugin-desktop-beta: failed to open Web panel link: ${cause instanceof Error ? cause.message : String(cause)}`)
++          })
++        }
++      } catch {
++        // A malformed target is rejected with the same deny result.
++      }
++      return { action: 'deny' }
++    })
++    generation.attachWebPanel(view)
++    record.view = view
++    return view
++  }
++
++  /** Load the initial page once and share the in-flight operation. */
++  private readyWebPanel(record: NativeWebPanelRecord): Promise<DesktopWebPanelStatus> {
++    try {
++      this.assertWebPanelActive(record)
++      if (record.state === 'ready') return Promise.resolve(this.webPanelStatus(record))
++      if (record.loadTask !== undefined) return record.loadTask
++      const view = this.createWebPanelView(record)
++      record.state = 'loading'
++      record.error = undefined
++      const loadTask = view.webContents.loadURL(record.spec.url).then(
++        () => {
++          this.assertWebPanelActive(record)
++          record.state = 'ready'
++          return this.webPanelStatus(record)
++        },
++        (cause: unknown) => {
++          this.assertWebPanelActive(record)
++          record.state = 'failed'
++          record.error = cause instanceof Error ? cause.message : String(cause)
++          throw cause
++        },
++      ).finally(() => {
++        if (record.loadTask === loadTask) record.loadTask = undefined
++      })
++      record.loadTask = loadTask
++      return loadTask
++    } catch (cause) {
++      return Promise.reject(cause)
++    }
++  }
++
++  /** Load before exposing the view so the renderer never shows a bitmap surrogate. */
++  private async showWebPanel(
++    record: NativeWebPanelRecord,
++    bounds: DesktopWebPanelBounds,
++  ): Promise<DesktopWebPanelStatus> {
++    const resolvedBounds = validateWebPanelBounds(bounds)
++    const status = await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    this.generation!.positionWebPanel(view, resolvedBounds)
++    view.setVisible(true)
++    return status
++  }
++
++  /** Hide without discarding the remote page or its persistent session. */
++  private hideWebPanel(record: NativeWebPanelRecord): void {
++    this.assertWebPanelActive(record)
++    record.view?.setVisible(false)
++  }
++
++  /** Reload the current allowed page through a promise-returning navigation. */
++  private async reloadWebPanel(record: NativeWebPanelRecord): Promise<DesktopWebPanelStatus> {
++    await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    const currentUrl = view.webContents.getURL() || record.spec.url
++    const currentOrigin = new URL(currentUrl).origin
++    if (!record.spec.allowedOrigins.has(currentOrigin)) {
++      throw new Error('dsh-plugin-desktop-beta: Web panel current origin is not allowed')
++    }
++    record.state = 'loading'
++    record.error = undefined
++    try {
++      await view.webContents.loadURL(currentUrl)
++      this.assertWebPanelActive(record)
++      record.state = 'ready'
++      return this.webPanelStatus(record)
++    } catch (cause) {
++      this.assertWebPanelActive(record)
++      record.state = 'failed'
++      record.error = cause instanceof Error ? cause.message : String(cause)
++      throw cause
++    }
++  }
++
++  /** Run one fixed plugin-owned extractor after the remote page is ready. */
++  private async evaluateWebPanel<T>(record: NativeWebPanelRecord, expression: string): Promise<T> {
++    if (expression.length === 0 || expression.length > MAX_CAPTURE_EXPRESSION_CHARS || expression.includes('\0')) {
++      throw new Error('dsh-plugin-desktop-beta: Web panel expression is empty, oversized, or contains NUL')
++    }
++    await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    return await view.webContents.executeJavaScript(expression, true) as T
++  }
++
++  /** Close one remote renderer and release its identity for this generation. */
++  private async disposeWebPanel(record: NativeWebPanelRecord): Promise<void> {
++    if (record.disposed) return
++    record.disposed = true
++    this.webPanels.delete(record.spec.id)
++    await record.loadTask?.catch(() => {})
++    const view = record.view
++    record.view = undefined
++    if (view === undefined) return
++    view.setVisible(false)
++    this.generation?.detachWebPanel(view)
++    if (!view.webContents.isDestroyed()) view.webContents.close()
++  }
++
++  /** Reject use through a disposed registration. */
++  private assertWebPanelActive(record: NativeWebPanelRecord): void {
++    if (record.disposed) {
++      throw new Error(`dsh-plugin-desktop-beta: Web panel ${JSON.stringify(record.spec.id)} disposed`)
++    }
++  }
++
++  /** Close every attached view before its parent BrowserWindow is destroyed. */
++  private closeWebPanelViews(): void {
++    for (const record of this.webPanels.values()) {
++      const view = record.view
++      if (view === undefined) continue
++      view.setVisible(false)
++      this.generation?.detachWebPanel(view)
++      if (!view.webContents.isDestroyed()) view.webContents.close()
++      record.view = undefined
++      record.loadTask = undefined
++      record.state = 'idle'
++      record.error = undefined
++    }
++  }
++
+   /** @inheritdoc */
+   async pickDirectory(): Promise<string | null> {
+     return await this.workspaceAdmission.pickDirectory()
+diff --git a/dsh-plugin-desktop-beta/src/electron-shell-generation.ts b/dsh-plugin-desktop-beta/src/electron-shell-generation.ts
+index 9bc3ef740..1e7dccf0c 100644
+--- a/dsh-plugin-desktop-beta/src/electron-shell-generation.ts
++++ b/dsh-plugin-desktop-beta/src/electron-shell-generation.ts
+@@ -10,6 +10,7 @@ import {
+   shell,
+   Tray,
+   type WebContents,
++  type WebContentsView,
+ } from 'electron'
+ import { CompatibilityShell, type CompatibilityShellActions } from './compatibility-shell.ts'
+ import { formatDesktopExitCode } from './desktop-logger.ts'
+@@ -791,6 +792,41 @@ export class ElectronShellGeneration {
+     if (this.window !== undefined && !this.window.isDestroyed()) this.refreshNativeMaterial?.()
+   }
+
++  /** Attach a native panel above the Renderer and below the independent caption and its menus. */
++  attachWebPanel(view: WebContentsView): void {
++    const window = this.window
++    if (this.released || window === undefined || window.isDestroyed()) {
++      throw new Error('dsh-plugin-desktop-beta: native window is not ready for Web panels')
++    }
++    window.contentView.addChildView(view)
++    if (this.compatibilityShell !== undefined) {
++      window.contentView.addChildView(this.compatibilityShell.chromeView)
++    }
++  }
++
++  /** Place a native panel over renderer CSS coordinates, including shell offset and zoom. */
++  positionWebPanel(view: WebContentsView, bounds: Electron.Rectangle): void {
++    const renderer = this.renderer
++    if (renderer === undefined || renderer.isDestroyed()) {
++      throw new Error('dsh-plugin-desktop-beta: renderer is not ready for Web panels')
++    }
++    const origin = this.compatibilityShell?.content.getBounds() ?? { x: 0, y: 0 }
++    const zoom = renderer.getZoomFactor()
++    view.setBounds({
++      x: origin.x + Math.round(bounds.x * zoom),
++      y: origin.y + Math.round(bounds.y * zoom),
++      width: Math.round(bounds.width * zoom),
++      height: Math.round(bounds.height * zoom),
++    })
++  }
++
++  /** Detach one plugin-owned native panel while the active window still exists. */
++  detachWebPanel(view: WebContentsView): void {
++    const window = this.window
++    if (window === undefined || window.isDestroyed()) return
++    window.contentView.removeChildView(view)
++  }
++
+   async release(): Promise<void> {
+     if (this.released) return
+     this.released = true
+diff --git a/dsh-plugin-desktop-beta/src/host-bootstrap.ts b/dsh-plugin-desktop-beta/src/host-bootstrap.ts
+index c71e3d5cb..3d1eb39a4 100644
+--- a/dsh-plugin-desktop-beta/src/host-bootstrap.ts
++++ b/dsh-plugin-desktop-beta/src/host-bootstrap.ts
+@@ -10,6 +10,7 @@ import { installProfilePackageResolver } from './module-resolution.ts'
+ import { createDesktopWebProfile, listDesktopProfiles, canDeleteDesktopProfile, deleteDesktopProfile, selectDesktopProfile } from './profile-manager.ts'
+ import { DesktopProfileService } from './profile-service.ts'
+ import { DesktopActionsService } from './desktop-actions.ts'
++import { DesktopWebPanelService } from './web-panels.ts'
+ import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+ import { desktopMarketSnapshotWithEffective, selectDesktopMarketProvider, type DesktopMarketProvider, type DesktopMarketSnapshot } from './desktop-market.ts'
+ import DesktopSettingsController from './desktop-settings-controller.ts'
+@@ -165,6 +166,7 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
+           persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
+           requestRestart: () => runtime.requestRestart(),
+         })
++        await hostCtx.plugin(DesktopWebPanelService, runtime)
+         let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+         const scheduleSettingsRestart = (): void => {
+           pendingSettingsRestart ??= setImmediate(() => {
+diff --git a/dsh-plugin-desktop-beta/src/host-runtime-bridge.ts b/dsh-plugin-desktop-beta/src/host-runtime-bridge.ts
+index f53280582..959bb064c 100644
+--- a/dsh-plugin-desktop-beta/src/host-runtime-bridge.ts
++++ b/dsh-plugin-desktop-beta/src/host-runtime-bridge.ts
+@@ -1,5 +1,6 @@
+ /** Native capability adapters; frontend HTTP and WebSocket connections are unchanged. */
+ import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem, DesktopTrayItemRegistration, DesktopUpdateAdapter } from './runtime.ts'
++import type { DesktopWebPanelRegistration, DesktopWebPanelStatus } from './web-panels.ts'
+ import { HostRpc } from './host-rpc.ts'
+
+ export type RuntimeSnapshot = Pick<DesktopRuntime, 'platform' | 'windowsBuild' | 'locale'> & {
+@@ -61,6 +62,57 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
+       downloadAndOpen: (version, signal, channel) => send('update:downloadAndOpen', [version, channel], signal),
+       notify: notification => { void send('update:notify', [notification]) },
+     },
++    registerWebPanel(spec) {
++      const id = `web-panel:${++sequence}`
++      let active = true
++      let status: DesktopWebPanelStatus = { state: 'idle', url: spec.url }
++      const registered = send<void>('web-panel:register', [id, spec])
++      trackSetup(registered)
++      const assertActive = (): void => {
++        if (!active) throw new Error(`dsh-plugin-desktop-beta: Web panel ${JSON.stringify(spec.id)} disposed`)
++      }
++      const update = async (method: string, args: unknown[] = []): Promise<DesktopWebPanelStatus> => {
++        assertActive()
++        try {
++          await registered
++          status = await send<DesktopWebPanelStatus>(method, [id, ...args])
++          return status
++        } catch (cause) {
++          status = {
++            state: 'failed',
++            url: status.url,
++            error: cause instanceof Error ? cause.message : String(cause),
++          }
++          throw cause
++        }
++      }
++      return {
++        id: spec.id,
++        status: () => { assertActive(); return { ...status } },
++        ready: () => update('web-panel:ready'),
++        show: bounds => update('web-panel:show', [bounds]),
++        hide: () => {
++          if (!active) return
++          void registered.then(() => send('web-panel:hide', [id])).catch(() => {})
++        },
++        reload: () => update('web-panel:reload'),
++        evaluate: async <T>(expression: string): Promise<T> => {
++          assertActive()
++          await registered
++          return await send<T>('web-panel:evaluate', [id, expression])
++        },
++        dispose: async () => {
++          if (!active) return
++          active = false
++          try {
++            await registered
++          } catch {
++            return
++          }
++          await send('web-panel:dispose', [id])
++        },
++      }
++    },
+     schedule(spec) {
+       const callback = callbacks({ quit: spec.requestQuit, mode: spec.requestModeChange,
+         ...(spec.readRemoteControl ? { remoteRead: spec.readRemoteControl } : {}),
+@@ -133,12 +185,18 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
+ /** Install only the declared native surface; never expose arbitrary Electron APIs. */
+ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => Promise<void> {
+   const trays = new Map<string, DesktopTrayItemRegistration>()
++  const webPanels = new Map<string, DesktopWebPanelRegistration>()
+   const shells = new Map<string, () => Promise<void>>()
+   const preferences = new Map<string, { locale: any; theme: any }>()
+   const releases: (() => void)[] = []
+   const handle = (name: string, fn: (args: any[], signal: AbortSignal) => unknown) => { releases.push(rpc.handle(name, fn)) }
+   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
+   const report = (promise: Promise<unknown>) => { void promise.catch(error => process.stderr.write(`${String(error)}\n`)) }
++  const webPanel = (id: string): DesktopWebPanelRegistration => {
++    const panel = webPanels.get(id)
++    if (panel === undefined) throw new Error('Native Web panel registration is unavailable')
++    return panel
++  }
+   for (const method of ['show', 'notifyAttention', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
+     'exportDiagnostics', 'pickDirectory', 'validateDirectory', 'reportRendererBoot',
+     'setThemeSource', 'prepareToQuit'] as const) {
+@@ -182,6 +240,20 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () =>
+     trays.set(id, runtime.registerTrayItem({ ...project(data), submenu: data.submenu ? () => data.submenu.map(project) : undefined }))
+   })
+   handle('tray:dispose', ([id]) => { trays.get(id)?.dispose(); trays.delete(id) })
++  handle('web-panel:register', ([id, spec]) => {
++    if (webPanels.has(id)) throw new Error('Duplicate native Web panel registration')
++    webPanels.set(id, runtime.registerWebPanel(spec))
++  })
++  handle('web-panel:ready', ([id]) => webPanel(id).ready())
++  handle('web-panel:show', ([id, bounds]) => webPanel(id).show(bounds))
++  handle('web-panel:hide', ([id]) => { webPanel(id).hide() })
++  handle('web-panel:reload', ([id]) => webPanel(id).reload())
++  handle('web-panel:evaluate', ([id, expression]) => webPanel(id).evaluate(expression))
++  handle('web-panel:dispose', async ([id]) => {
++    const panel = webPanels.get(id)
++    webPanels.delete(id)
++    await panel?.dispose()
++  })
+   handle('update:request', async ([url, init], signal) => {
+     const response = await runtime.updates.request(url, { ...init, signal })
+     return { body: await response.text(), status: response.status, headers: [...response.headers.entries()] }
+@@ -192,6 +264,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () =>
+   handle('update:notify', ([value]) => runtime.updates.notify(value))
+   return async () => {
+     trays.forEach(tray => tray.dispose()); trays.clear()
++    await Promise.all([...webPanels.values()].map(panel => panel.dispose())); webPanels.clear()
+     await Promise.all([...shells.values()].map(dispose => dispose())); shells.clear(); preferences.clear()
+     releases.forEach(release => release())
+   }
+diff --git a/dsh-plugin-desktop-beta/src/main.ts b/dsh-plugin-desktop-beta/src/main.ts
+index b29ad1a7b..d6e7c9937 100644
+--- a/dsh-plugin-desktop-beta/src/main.ts
++++ b/dsh-plugin-desktop-beta/src/main.ts
+@@ -79,6 +79,7 @@ import {
+ } from './profile-manager.ts'
+ import { DesktopProfileService } from './profile-service.ts'
+ import { createDesktopProfileBoot } from './profile-context.ts'
++import { DesktopWebPanelService } from './web-panels.ts'
+ import { DesktopActionsService } from './desktop-actions.ts'
+ import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+ import {
+@@ -1627,6 +1628,7 @@ async function start(): Promise<void> {
+             persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
+             requestRestart: () => runtime.requestRestart(),
+           })
++          await hostCtx.plugin(DesktopWebPanelService, runtime)
+           let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+           const scheduleSettingsRestart = (): void => {
+             pendingSettingsRestart ??= setImmediate(() => {
+diff --git a/dsh-plugin-desktop-beta/src/runtime.ts b/dsh-plugin-desktop-beta/src/runtime.ts
+index e688f0b36..00f492bf4 100644
+--- a/dsh-plugin-desktop-beta/src/runtime.ts
++++ b/dsh-plugin-desktop-beta/src/runtime.ts
+@@ -4,6 +4,10 @@ import type { RendererBootReport } from './renderer-boot-contract.ts'
+ import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
+ import type { DesktopInstallationId } from './desktop-installation-id.ts'
+ import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
++import type {
++  DesktopWebPanelRegistration,
++  DesktopWebPanelSpec,
++} from './web-panels.ts'
+ import type {
+   DesktopWindowMaterial,
+   MacosWindowMaterial,
+@@ -180,6 +184,13 @@ export interface DesktopRuntime {
+   /** Native network, update-download, and notification adapter. */
+   readonly updates: DesktopUpdateAdapter
+
++  /**
++   * Register one launcher-owned native Web panel for a public Host service.
++   * @param spec - validated by the Electron adapter before remote content loads.
++   * @returns an effect-scoped panel registration.
++   */
++  registerWebPanel(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration
++
+   /**
+    * Register one shell generation while the Cordis profile is activating.
+    * @param spec - native shell inputs resolved from active Host services.
+diff --git a/dsh-plugin-desktop-beta/src/web-panels.ts b/dsh-plugin-desktop-beta/src/web-panels.ts
+new file mode 100644
+index 000000000..0e56bfc46
+--- /dev/null
++++ b/dsh-plugin-desktop-beta/src/web-panels.ts
+@@ -0,0 +1,128 @@
++/** Generation-scoped native WebContentsView panels for Desktop Host plugins. */
++
++import { type Context, Service } from '@deepseek-ai/cordis'
++import type { DesktopRuntime } from './runtime.ts'
++
++/** Rectangle in the DSH renderer's CSS viewport coordinates. */
++export interface DesktopWebPanelBounds {
++  /** Left offset in CSS pixels. */
++  x: number
++  /** Top offset in CSS pixels. */
++  y: number
++  /** Visible width in CSS pixels. */
++  width: number
++  /** Visible height in CSS pixels. */
++  height: number
++}
++
++/** One remote page owned by a Desktop Host plugin. */
++export interface DesktopWebPanelSpec {
++  /** Stable profile-local identity used for the persistent session partition. */
++  id: string
++  /** Initial HTTPS page. */
++  url: string
++  /** HTTPS origins allowed for main-frame navigation. */
++  allowedOrigins: readonly string[]
++}
++
++/** Observable state for one native Web panel. */
++export interface DesktopWebPanelStatus {
++  /** Current native lifecycle state. */
++  state: 'idle' | 'loading' | 'ready' | 'failed'
++  /** Last committed main-frame URL. */
++  url: string
++  /** Last load failure, when present. */
++  error?: string
++}
++
++/** Effect-scoped control surface returned to one Host plugin. */
++export interface DesktopWebPanelRegistration {
++  /** Stable caller-provided identity. */
++  readonly id: string
++  /** Read current lifecycle state without loading the page. */
++  status(): DesktopWebPanelStatus
++  /** Create and load the native page without making it visible. */
++  ready(): Promise<DesktopWebPanelStatus>
++  /** Place the native page above renderer CSS bounds, accounting for native chrome and zoom. */
++  show(bounds: DesktopWebPanelBounds): Promise<DesktopWebPanelStatus>
++  /** Hide the native page while retaining its login session and page state. */
++  hide(): void
++  /** Reload the current page and wait for navigation to settle. */
++  reload(): Promise<DesktopWebPanelStatus>
++  /**
++   * Evaluate a bundled capture expression inside the remote page.
++   * @param expression - fixed plugin-owned JavaScript, never request input.
++   * @returns the expression result copied across the Electron process boundary.
++   */
++  evaluate<T>(expression: string): Promise<T>
++  /** Remove the view and close its WebContents. Repeated disposal has no effect. */
++  dispose(): Promise<void>
++}
++
++/** Supported native-page capability available to Desktop Host plugins. */
++export interface DesktopWebPanels {
++  /**
++   * Register one HTTPS page for the current Cordis generation.
++   * @param spec - stable identity, initial page, and exact navigation origins.
++   * @returns an effect-scoped native panel registration.
++   */
++  register(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration
++}
++
++declare module '@deepseek-ai/cordis' {
++  interface Context {
++    /** Native remote-page panels hosted above the sandboxed DSH Web renderer. */
++    desktopWebPanels: DesktopWebPanels
++  }
++}
++
++/** Cordis service that publishes the launcher-owned native panel adapter. */
++export class DesktopWebPanelService extends Service implements DesktopWebPanels {
++  private readonly registrations = new Set<DesktopWebPanelRegistration>()
++  private disposed = false
++
++  /**
++   * Register the public capability for one Desktop generation.
++   * @param ctx - Cordis context owning this exact service lifetime.
++   * @param runtime - launcher-private Electron adapter.
++   */
++  constructor(ctx: Context, private readonly runtime: DesktopRuntime) {
++    super(ctx, 'desktopWebPanels')
++    ctx.effect(
++      () => async () => {
++        this.disposed = true
++        const registrations = [...this.registrations]
++        this.registrations.clear()
++        await Promise.all(registrations.map(registration => registration.dispose()))
++      },
++      'dsh-plugin-desktop-beta: native Web panel service lifetime',
++    )
++  }
++
++  /** @inheritdoc */
++  register(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration {
++    if (this.disposed) {
++      throw new Error('dsh-plugin-desktop-beta: desktopWebPanels service disposed')
++    }
++    const registration = this.runtime.registerWebPanel(spec)
++    this.registrations.add(registration)
++    let active = true
++    return {
++      id: registration.id,
++      status: () => registration.status(),
++      ready: () => registration.ready(),
++      show: bounds => registration.show(bounds),
++      hide: () => { registration.hide() },
++      reload: () => registration.reload(),
++      evaluate: expression => registration.evaluate(expression),
++      dispose: async () => {
++        if (!active) return
++        active = false
++        this.registrations.delete(registration)
++        await registration.dispose()
++      },
++    }
++  }
++}
++
++export default DesktopWebPanelService
+diff --git a/dsh-plugin-desktop-beta/tests/electron-runtime.spec.ts b/dsh-plugin-desktop-beta/tests/electron-runtime.spec.ts
+index bac859a8b..a0cdb2be4 100644
+--- a/dsh-plugin-desktop-beta/tests/electron-runtime.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/electron-runtime.spec.ts
+@@ -114,6 +114,7 @@ const electron = vi.hoisted(() => {
+     closeDevTools: vi.fn(() => { devToolsOpened = false }),
+     executeJavaScript: vi.fn(async (_code: string, _userGesture?: boolean) => null as unknown),
+     getZoomLevel: vi.fn(() => zoomLevel),
++    getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
+     isDevToolsOpened: vi.fn(() => devToolsOpened),
+     on: vi.fn(),
+     off: vi.fn(),
+@@ -140,14 +141,42 @@ const electron = vi.hoisted(() => {
+     loadFile: vi.fn(async () => {}),
+     close: vi.fn(),
+   }
++  const webPanelContents: Array<{
++    close: ReturnType<typeof vi.fn>
++    executeJavaScript: ReturnType<typeof vi.fn>
++    getURL: ReturnType<typeof vi.fn>
++    isDestroyed: ReturnType<typeof vi.fn>
++    loadURL: ReturnType<typeof vi.fn>
++    on: ReturnType<typeof vi.fn>
++    setWindowOpenHandler: ReturnType<typeof vi.fn>
++  }> = []
+   const contentViews: WebContentsView[] = []
+   class WebContentsView {
+-    readonly webContents: typeof webContents | typeof chromeWebContents
+-    readonly setBounds = vi.fn()
++    readonly webContents: typeof webContents | typeof chromeWebContents | typeof webPanelContents[number]
++    private bounds = { x: 0, y: 0, width: 0, height: 0 }
++    readonly setBounds = vi.fn((bounds: typeof this.bounds) => { this.bounds = bounds })
++    readonly getBounds = vi.fn(() => this.bounds)
+     readonly setBackgroundColor = vi.fn()
++    readonly setVisible = vi.fn()
+     constructor(readonly options: unknown) {
+-      this.webContents = (options as { webPreferences: { partition: string } }).webPreferences.partition === 'dsh-desktop-compatibility-chrome'
+-        ? chromeWebContents : webContents
++      const partition = (options as { webPreferences: { partition: string } }).webPreferences.partition
++      if (partition.startsWith('persist:dsh-web-panel-')) {
++        let url = ''
++        const panelContents = {
++          close: vi.fn(),
++          executeJavaScript: vi.fn(async (_expression: string, _userGesture: boolean) => ({ captured: true })),
++          getURL: vi.fn(() => url),
++          isDestroyed: vi.fn(() => false),
++          loadURL: vi.fn(async (nextUrl: string) => { url = nextUrl }),
++          on: vi.fn(),
++          setWindowOpenHandler: vi.fn(),
++        }
++        webPanelContents.push(panelContents)
++        this.webContents = panelContents
++      } else {
++        this.webContents = partition === 'dsh-desktop-compatibility-chrome'
++          ? chromeWebContents : webContents
++      }
+       contentViews.push(this)
+     }
+   }
+@@ -158,7 +187,20 @@ const electron = vi.hoisted(() => {
+
+   class BrowserWindow {
+     readonly webContents: typeof webContents | typeof chromeWebContents
+-    readonly contentView = { addChildView: vi.fn(), removeChildView: vi.fn() }
++    readonly contentView = {
++      children: [] as WebContentsView[],
++      addChildView: vi.fn((view: WebContentsView) => {
++        const children = this.contentView.children
++        const index = children.indexOf(view)
++        if (index !== -1) children.splice(index, 1)
++        children.push(view)
++      }),
++      removeChildView: vi.fn((view: WebContentsView) => {
++        const children = this.contentView.children
++        const index = children.indexOf(view)
++        if (index !== -1) children.splice(index, 1)
++      }),
++    }
+     readonly getContentSize = vi.fn(() => [1280, 840])
+     readonly loadFile = vi.fn(async () => {})
+     accessibleTitle = ''
+@@ -248,6 +290,7 @@ const electron = vi.hoisted(() => {
+     BrowserWindow,
+     WebContentsView,
+     contentViews,
++    webPanelContents,
+     chromeWebContents,
+     browserWindowOptions,
+     browserWindowThemeSources,
+@@ -359,6 +402,7 @@ describe('Electron desktop runtime', () => {
+     electron.browserWindowThemeSources.length = 0
+     electron.browserWindows.length = 0
+     electron.contentViews.length = 0
++    electron.webPanelContents.length = 0
+     electron.trays.length = 0
+     electron.applicationMenuTemplates.length = 0
+     electron.menuTemplates.length = 0
+@@ -467,6 +511,124 @@ describe('Electron desktop runtime', () => {
+     expect(electron.trays[0]?.off).toHaveBeenCalledWith('click', expect.any(Function))
+   })
+
++  it('hosts a sandboxed persistent remote page and captures only on explicit evaluation', async () => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const panel = runtime.registerWebPanel({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    const release = runtime.schedule(spec)
++
++    await runtime.mountScheduled()
++    expect(electron.webPanelContents).toHaveLength(0)
++
++    await expect(panel.ready()).resolves.toMatchObject({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/',
++    })
++    const view = electron.contentViews[2]
++    const contents = electron.webPanelContents[0]
++    expect(view?.options).toEqual({
++      webPreferences: {
++        contextIsolation: true,
++        nodeIntegration: false,
++        partition: 'persist:dsh-web-panel-specsrelay-deepseek',
++        sandbox: true,
++        webSecurity: true,
++      },
++    })
++    expect(electron.browserWindows[0]?.contentView.addChildView).toHaveBeenCalledWith(view)
++    expect(view?.setVisible).toHaveBeenCalledWith(false)
++    expect(contents?.executeJavaScript).not.toHaveBeenCalled()
++
++    await panel.show({ x: 12, y: 80, width: 760, height: 620 })
++    expect(view?.setBounds).toHaveBeenCalledWith({ x: 12, y: 116, width: 760, height: 620 })
++    expect(view?.setVisible).toHaveBeenLastCalledWith(true)
++
++    await expect(panel.evaluate<{ captured: boolean }>('captureConversation()'))
++      .resolves.toEqual({ captured: true })
++    expect(contents?.executeJavaScript).toHaveBeenCalledWith('captureConversation()', true)
++
++    panel.hide()
++    expect(view?.setVisible).toHaveBeenLastCalledWith(false)
++    await panel.reload()
++    expect(contents?.loadURL).toHaveBeenLastCalledWith('https://chat.deepseek.com/')
++    await panel.dispose()
++    expect(electron.browserWindows[0]?.contentView.removeChildView).toHaveBeenCalledWith(view)
++    expect(contents?.close).toHaveBeenCalledOnce()
++    await expect(panel.ready()).rejects.toThrow('disposed')
++
++    await release()
++  })
++
++  it.each(['compatibility', 'extended', 'advanced'] as const)('aligns Web panels with renderer coordinates in %s mode', async mode => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const release = runtime.schedule({ ...spec, mode })
++    await runtime.mountScheduled()
++    const panel = runtime.registerWebPanel({
++      id: 'panel-layout', url: 'https://example.com/', allowedOrigins: ['https://example.com'],
++    })
++    const offsetY = mode === 'advanced' ? 0 : 36
++    await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++    const view = electron.contentViews.at(-1)
++    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 50 + offsetY, width: 800, height: 600 })
++    electron.webContents.setZoomLevel(1)
++    await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 12, y: 60 + offsetY, width: 960, height: 720 })
++    await release()
++  })
++
++  it.each(['compatibility', 'extended', 'advanced'] as const)('keeps caption menus above added Web panels in %s mode', async mode => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const release = runtime.schedule({ ...spec, mode })
++    await runtime.mountScheduled()
++    const content = electron.browserWindows[0]!.contentView
++    const baseViews = [...content.children]
++    const panels = []
++    const views = []
++    for (const id of ['first-page', 'second-page']) {
++      const panel = runtime.registerWebPanel({
++        id, url: 'https://example.com/', allowedOrigins: ['https://example.com'],
++      })
++      await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++      panels.push(panel)
++      views.push(electron.contentViews.at(-1)!)
++      expect(content.children).toEqual(mode === 'advanced'
++        ? [...baseViews, ...views]
++        : [baseViews[0], ...views, baseViews[1]])
++    }
++    await panels[0]!.dispose()
++    expect(content.children).toEqual(mode === 'advanced'
++      ? [...baseViews, views[1]]
++      : [baseViews[0], views[1], baseViews[1]])
++    await release()
++  })
++
++  it('rejects unsafe native Web panel registrations before Electron construction', async () => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++
++    expect(() => runtime.registerWebPanel({
++      id: 'SpecsRelay',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })).toThrow('Web panel id')
++    expect(() => runtime.registerWebPanel({
++      id: 'specsrelay',
++      url: 'http://chat.deepseek.com/',
++      allowedOrigins: ['http://chat.deepseek.com'],
++    })).toThrow('must use HTTPS')
++    expect(electron.webPanelContents).toHaveLength(0)
++  })
++
+   it('attaches the renderer capability to same-origin HTTP and WebSocket requests only', async () => {
+     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+diff --git a/dsh-plugin-desktop-beta/tests/host-process-integration.spec.ts b/dsh-plugin-desktop-beta/tests/host-process-integration.spec.ts
+index 94cee11c6..4d16f5591 100644
+--- a/dsh-plugin-desktop-beta/tests/host-process-integration.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/host-process-integration.spec.ts
+@@ -4,13 +4,14 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'nod
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { fileURLToPath } from 'node:url'
+-import { expect, it } from 'vitest'
++import { expect, it, vi } from 'vitest'
+ import { prepareDesktopProfile } from '../src/profile.ts'
+ import { desktopReleaseUserDataLocations } from '../src/profile-channel-admission.ts'
+ import { installDesktopPnpmRuntime } from '../src/desktop-runtime-environment.ts'
+ import { HostRpc } from '../src/host-rpc.ts'
+ import { bindNativeRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
+ import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
++import type { DesktopWebPanelSpec } from '../src/web-panels.ts'
+
+ it.each([false, true])('boots a separate Web Host with client plugins (AA enabled: %s)', async aaEnabled => {
+   const home = mkdtempSync(join(tmpdir(), 'dsh-isolated-host-'))
+@@ -30,7 +31,17 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     mkdirSync(plugin, { recursive: true })
+     writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: 'isolated-client-fixture', version: '1.0.0', type: 'module',
+       exports: { '.': './index.js', './client': './client.js', './package.json': './package.json' }, dsh: { client: { platform: 'web' } } }))
+-    writeFileSync(join(plugin, 'index.js'), 'export function apply() {}\n')
++    writeFileSync(join(plugin, 'index.js'), `
++      export const inject = ['desktopWebPanels']
++      export async function apply(ctx) {
++        const panel = ctx.desktopWebPanels.register({
++          id: 'isolated-web-panel-fixture',
++          url: 'https://example.com/',
++          allowedOrigins: ['https://example.com'],
++        })
++        await panel.ready()
++      }
++    `)
+     writeFileSync(join(plugin, 'client.js'), 'export function apply(ctx) { ctx.provide("isolatedClientFixture", true) }\n')
+     prepared.overlays.push({ insert: [{ id: 'isolated-client-fixture', name: 'isolated-client-fixture' }] })
+     const packageRoot = new URL('../', import.meta.url)
+@@ -51,11 +62,19 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     }, 30_000)
+     child.on('exit', () => rpc?.close(stderr || 'worker exited'))
+     let shell: DesktopShellSpec | undefined
++    const panelReady = vi.fn(async () => ({ state: 'ready' as const, url: 'https://example.com/' }))
++    const panelDispose = vi.fn(async () => {})
++    const registerWebPanel = vi.fn((spec: DesktopWebPanelSpec) => ({
++      id: spec.id,
++      ready: panelReady,
++      dispose: panelDispose,
++    }))
+     const runtime = {
+       platform: 'win32', windowsBuild: 22631, locale: 'en',
+       updates: { isPackaged: false, canDownload: false, currentVersion: '2.0.7-beta.1', statePath: join(home, 'updates') },
+       schedule(spec: DesktopShellSpec) { shell = spec; return async () => {} },
+       registerTrayItem() { return { refresh() {}, dispose() {} } },
++      registerWebPanel,
+       setLocalePreference() {}, setThemeSource() {},
+     } as unknown as DesktopRuntime
+     releaseNative = bindNativeRuntime(rpc, runtime)
+@@ -77,6 +96,12 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     expect(result.pid).toBe(child.pid)
+     expect(result.pid).not.toBe(process.pid)
+     expect(shell).toBeDefined()
++    await expect.poll(() => panelReady.mock.calls.length).toBe(1)
++    expect(registerWebPanel).toHaveBeenCalledExactlyOnceWith({
++      id: 'isolated-web-panel-fixture',
++      url: 'https://example.com/',
++      allowedOrigins: ['https://example.com'],
++    })
+     const spec = shell!
+     const headers = { [spec.rendererAccessHeader.name]: spec.rendererAccessHeader.value }
+     const unauthorized = await fetch(spec.url, { headers })
+@@ -101,6 +126,7 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 3000 })
+       .toEqual({ aaRuntime: aaEnabled, aaOnboarding: aaEnabled })
+     await rpc.call('stop')
++    expect(panelDispose).toHaveBeenCalledTimes(1)
+     await expect(fetch(spec.url, { headers })).rejects.toThrow()
+   } catch (error) {
+     throw new Error(`${error instanceof Error ? error.stack : String(error)}\n${stderr}`)
+diff --git a/dsh-plugin-desktop-beta/tests/host-runtime-bridge.spec.ts b/dsh-plugin-desktop-beta/tests/host-runtime-bridge.spec.ts
+index 02fc57403..da6b81f96 100644
+--- a/dsh-plugin-desktop-beta/tests/host-runtime-bridge.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/host-runtime-bridge.spec.ts
+@@ -4,6 +4,7 @@ import { HostRpc } from '../src/host-rpc.ts'
+ import { bindNativeRuntime, createHostRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
+ import { desktopTrayLabel } from '../src/tray-locale.ts'
+ import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem } from '../src/runtime.ts'
++import type { DesktopWebPanelRegistration } from '../src/web-panels.ts'
+
+ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on changes (preference: %s)', async initialPreference => {
+   const { port1, port2 } = new MessageChannel()
+@@ -16,6 +17,18 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+   const disposeShell = vi.fn(async () => {})
+   const disposeTray = vi.fn()
+   let nativeLocale: DesktopLocale = 'en'
++  const disposeWebPanel = vi.fn(async () => {})
++  const nativeWebPanel: DesktopWebPanelRegistration = {
++    id: 'specsrelay-deepseek',
++    status: () => ({ state: 'idle', url: 'https://chat.deepseek.com/' }),
++    ready: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    show: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/a/chat/s/test' }),
++    hide: vi.fn(),
++    reload: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/a/chat/s/test' }),
++    evaluate: async <T>() => ({ captured: true }) as T,
++    dispose: disposeWebPanel,
++  }
++  const registerWebPanel = vi.fn(() => nativeWebPanel)
+   const native = {
+     platform: 'win32', windowsBuild: 22631, get locale() { return nativeLocale },
+     setLocalePreference: (preference: DesktopLocale | undefined) => { nativeLocale = preference ?? 'zh' },
+@@ -24,6 +37,7 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     },
+     schedule: (value: DesktopShellSpec) => { shell = value; return disposeShell },
+     registerTrayItem: (value: DesktopTrayItem) => { tray = value; return { refresh() {}, dispose: disposeTray } },
++    registerWebPanel,
+   } as unknown as DesktopRuntime
+   const release = bindNativeRuntime(parent, native)
+   try {
+@@ -43,7 +57,28 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     runtime.registerTrayItem({ group: 'tools', order: 1, label: () => desktopTrayLabel(runtime.locale, 'openTerminal'), invoke,
+       submenu: () => [{ label: () => desktopTrayLabel(runtime.locale, 'checkForUpdates'), invoke }] })
+     language = initialPreference
++    const panel = runtime.registerWebPanel({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    expect(panel.status()).toEqual({ state: 'idle', url: 'https://chat.deepseek.com/' })
+     await runtime.mountScheduled()
++    expect(registerWebPanel).toHaveBeenCalledWith({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    await expect(panel.show({ x: 0, y: 36, width: 640, height: 804 })).resolves.toEqual({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/a/chat/s/test',
++    })
++    expect(panel.status()).toEqual({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/a/chat/s/test',
++    })
++    await expect(panel.evaluate<{ captured: boolean }>('captureConversation()'))
++      .resolves.toEqual({ captured: true })
+     expect(await shell.readRemoteControl?.()).toBe(false)
+     await shell.enableRemoteControl?.()
+     expect(spec.enableRemoteControl).toHaveBeenCalledTimes(1)
+@@ -72,5 +107,7 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     expect(await response.json()).toEqual({ version: '2.0.8-beta.1' })
+     await stopShell()
+     expect(disposeShell).toHaveBeenCalledOnce()
++    await panel.dispose()
++    expect(disposeWebPanel).toHaveBeenCalledOnce()
+   } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
+ })
+diff --git a/dsh-plugin-desktop-beta/tests/package.spec.ts b/dsh-plugin-desktop-beta/tests/package.spec.ts
+index 395eed46e..652e963aa 100644
+--- a/dsh-plugin-desktop-beta/tests/package.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/package.spec.ts
+@@ -148,6 +148,10 @@ describe('published package surface', () => {
+
+   it('exposes the Host plugin and desktop-owned client face', () => {
+     expect(manifest.exports).toHaveProperty('./client')
++    expect(manifest.exports).toHaveProperty('./web-panels', {
++      types: './lib/types/web-panels.d.ts',
++      default: './lib/web-panels.js',
++    })
+     expect(manifest.exports).toHaveProperty('./windows-pwsh-sandbox', {
+       types: './lib/types/windows-pwsh-sandbox.d.ts',
+       default: './lib/windows-pwsh-sandbox.js',
+diff --git a/dsh-plugin-desktop-beta/tests/plugin.spec.ts b/dsh-plugin-desktop-beta/tests/plugin.spec.ts
+index 30f0ab6a4..e0cec8c41 100644
+--- a/dsh-plugin-desktop-beta/tests/plugin.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/plugin.spec.ts
+@@ -112,6 +112,9 @@ function createHarness(
+   })
+   const runtime: DesktopRuntime = {
+     platform,
++    registerWebPanel: () => {
++      throw new Error('native Web panels are not used by desktop-shell plugin tests')
++    },
+     windowsBuild: platform === 'win32' ? 22_631 : undefined,
+     locale: 'en',
+     updates: {
+diff --git a/dsh-plugin-desktop-beta/tests/verify-packaged-runtime.spec.ts b/dsh-plugin-desktop-beta/tests/verify-packaged-runtime.spec.ts
+index e0fbbf4f8..728194a15 100644
+--- a/dsh-plugin-desktop-beta/tests/verify-packaged-runtime.spec.ts
++++ b/dsh-plugin-desktop-beta/tests/verify-packaged-runtime.spec.ts
+@@ -211,6 +211,7 @@ describe('packaged desktop runtime verification', () => {
+     expect(REQUIRED_PACKAGED_RUNTIME_ENTRIES).toContain('cordis.patch.yml')
+     expect(REQUIRED_PACKAGED_RUNTIME_ENTRIES.some(entry => entry.startsWith('lib/'))).toBe(false)
+     expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/main.js')
++    expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/web-panels.js')
+     expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/native-ui/setup-wizard.html')
+   })
+
+diff --git a/dsh-plugin-desktop-beta/tests/web-panels.spec.ts b/dsh-plugin-desktop-beta/tests/web-panels.spec.ts
+new file mode 100644
+index 000000000..6d5714961
+--- /dev/null
++++ b/dsh-plugin-desktop-beta/tests/web-panels.spec.ts
+@@ -0,0 +1,69 @@
++import { Context } from '@deepseek-ai/cordis'
++import { describe, expect, it, vi } from 'vitest'
++import type { DesktopRuntime } from '../src/runtime.ts'
++import DesktopWebPanelService, {
++  type DesktopWebPanelRegistration,
++} from '../src/web-panels.ts'
++
++function createRegistration(): DesktopWebPanelRegistration {
++  return {
++    id: 'specsrelay-deepseek',
++    status: () => ({ state: 'idle', url: 'https://chat.deepseek.com/' }),
++    ready: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    show: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    hide: vi.fn(),
++    reload: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    evaluate: async <T>() => ({ captured: true }) as T,
++    dispose: vi.fn(async () => {}),
++  }
++}
++
++describe('desktop Web panel service', () => {
++  it('publishes the native adapter and closes registrations with its generation', async () => {
++    const native = createRegistration()
++    const registerWebPanel = vi.fn(() => native)
++    const runtime = { registerWebPanel } as unknown as DesktopRuntime
++    const ctx = new Context()
++    const fiber = ctx.plugin(DesktopWebPanelService, runtime)
++    await fiber
++
++    const service = ctx.desktopWebPanels
++    const registration = service.register({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    expect(registerWebPanel).toHaveBeenCalledOnce()
++    await expect(registration.evaluate<{ captured: boolean }>('capture()'))
++      .resolves.toEqual({ captured: true })
++
++    await fiber.dispose()
++    expect(native.dispose).toHaveBeenCalledOnce()
++    expect(ctx.get('desktopWebPanels')).toBeUndefined()
++    expect(() => service.register({
++      id: 'other',
++      url: 'https://example.com/',
++      allowedOrigins: ['https://example.com'],
++    })).toThrow('service disposed')
++  })
++
++  it('makes consumer disposal idempotent', async () => {
++    const native = createRegistration()
++    const ctx = new Context()
++    const fiber = ctx.plugin(
++      DesktopWebPanelService,
++      { registerWebPanel: () => native } as unknown as DesktopRuntime,
++    )
++    await fiber
++    const registration = ctx.desktopWebPanels.register({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++
++    await registration.dispose()
++    await registration.dispose()
++    await fiber.dispose()
++    expect(native.dispose).toHaveBeenCalledOnce()
++  })
++})
+diff --git a/dsh-plugin-desktop-beta/tsdown.config.ts b/dsh-plugin-desktop-beta/tsdown.config.ts
+index fd30566f8..94d51e9c1 100644
+--- a/dsh-plugin-desktop-beta/tsdown.config.ts
++++ b/dsh-plugin-desktop-beta/tsdown.config.ts
+@@ -29,6 +29,7 @@ export default defineConfig([
+       'update-checker': 'src/update-checker.ts',
+       'update-download': 'src/update-download.ts',
+       updates: 'src/updates.ts',
++      'web-panels': 'src/web-panels.ts',
+       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',
+       'windows-acl-runner': 'src/windows-acl-runner.ts',
+       main: 'src/main.ts',
+diff --git a/dsh-plugin-desktop/package.json b/dsh-plugin-desktop/package.json
+index 9163775a2..df559bd2d 100644
+--- a/dsh-plugin-desktop/package.json
++++ b/dsh-plugin-desktop/package.json
+@@ -71,7 +71,11 @@
+       "types": "./lib/types/updates.d.ts",
+       "default": "./lib/updates.js"
+     },
+-    "./package.json": "./package.json"
++    "./package.json": "./package.json",
++    "./web-panels": {
++      "types": "./lib/types/web-panels.d.ts",
++      "default": "./lib/web-panels.js"
++    }
+   },
+   "files": [
+     "build/app-icon.ico",
+diff --git a/dsh-plugin-desktop/src/electron-runtime.ts b/dsh-plugin-desktop/src/electron-runtime.ts
+index 4ff60e7cd..35cf4126c 100644
+--- a/dsh-plugin-desktop/src/electron-runtime.ts
++++ b/dsh-plugin-desktop/src/electron-runtime.ts
+@@ -7,6 +7,7 @@ import {
+   net,
+   Notification,
+   shell,
++  WebContentsView,
+ } from 'electron'
+ import { spawn } from 'node:child_process'
+ import { RemoteControlOffer, remoteControlOfferCopy } from './remote-control-offer.ts'
+@@ -70,6 +71,73 @@ import {
+   FileMainWindowStateStore,
+   type MainWindowStateStore,
+ } from './main-window-state.ts'
++import type {
++  DesktopWebPanelBounds,
++  DesktopWebPanelRegistration,
++  DesktopWebPanelSpec,
++  DesktopWebPanelStatus,
++} from './web-panels.ts'
++
++const WEB_PANEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/u
++const MAX_CAPTURE_EXPRESSION_CHARS = 1_000_000
++
++interface ResolvedWebPanelSpec {
++  readonly id: string
++  readonly url: string
++  readonly allowedOrigins: ReadonlySet<string>
++  readonly partition: string
++}
++
++interface NativeWebPanelRecord {
++  readonly spec: ResolvedWebPanelSpec
++  view: WebContentsView | undefined
++  state: DesktopWebPanelStatus['state']
++  error: string | undefined
++  loadTask: Promise<DesktopWebPanelStatus> | undefined
++  disposed: boolean
++}
++
++/** Validate remote-content policy before a native view can be registered. */
++function resolveWebPanelSpec(spec: DesktopWebPanelSpec): ResolvedWebPanelSpec {
++  if (!WEB_PANEL_ID_PATTERN.test(spec.id)) {
++    throw new Error('dsh-plugin-desktop: Web panel id must use lowercase letters, digits, dots, underscores, or hyphens')
++  }
++  const initial = new URL(spec.url)
++  if (initial.protocol !== 'https:') {
++    throw new Error('dsh-plugin-desktop: Web panel URL must use HTTPS')
++  }
++  const allowedOrigins = new Set<string>()
++  for (const value of spec.allowedOrigins) {
++    const origin = new URL(value)
++    if (origin.protocol !== 'https:' || origin.origin !== value) {
++      throw new Error('dsh-plugin-desktop: Web panel origins must be exact HTTPS origins')
++    }
++    allowedOrigins.add(origin.origin)
++  }
++  if (!allowedOrigins.has(initial.origin)) {
++    throw new Error('dsh-plugin-desktop: Web panel initial origin is not allowed')
++  }
++  return {
++    id: spec.id,
++    url: initial.href,
++    allowedOrigins,
++    partition: `persist:dsh-web-panel-${spec.id}`,
++  }
++}
++
++/** Reject non-integer or empty rectangles before they reach Electron. */
++function validateWebPanelBounds(bounds: DesktopWebPanelBounds): DesktopWebPanelBounds {
++  const entries = Object.entries(bounds) as Array<[keyof DesktopWebPanelBounds, number]>
++  for (const [name, value] of entries) {
++    if (!Number.isInteger(value) || value < 0) {
++      throw new Error(`dsh-plugin-desktop: Web panel ${name} must be a non-negative integer`)
++    }
++  }
++  if (bounds.width === 0 || bounds.height === 0) {
++    throw new Error('dsh-plugin-desktop: Web panel bounds must not be empty')
++  }
++  return { ...bounds }
++}
+
+ /**
+  * Read the desktop package version instead of Electron's development-app version.
+@@ -115,6 +183,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+   private rendererBootHealthy = false
+   private profileCreateWindow: ProfileCreateWindow | undefined
+   private restartRequest: Promise<void> | undefined
++  private readonly webPanels = new Map<string, NativeWebPanelRecord>()
+
+   constructor(
+     private readonly restart: (target?: 'recovery' | 'safe-mode') => Promise<void>,
+@@ -170,6 +239,33 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+     return this.rendererHealthGate?.failureReason
+   }
+
++  /** @inheritdoc */
++  registerWebPanel(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration {
++    const resolved = resolveWebPanelSpec(spec)
++    if (this.webPanels.has(resolved.id)) {
++      throw new Error(`dsh-plugin-desktop: Web panel ${JSON.stringify(resolved.id)} is already registered`)
++    }
++    const record: NativeWebPanelRecord = {
++      spec: resolved,
++      view: undefined,
++      state: 'idle',
++      error: undefined,
++      loadTask: undefined,
++      disposed: false,
++    }
++    this.webPanels.set(resolved.id, record)
++    return {
++      id: resolved.id,
++      status: () => this.webPanelStatus(record),
++      ready: () => this.readyWebPanel(record),
++      show: bounds => this.showWebPanel(record, bounds),
++      hide: () => { this.hideWebPanel(record) },
++      reload: () => this.reloadWebPanel(record),
++      evaluate: expression => this.evaluateWebPanel(record, expression),
++      dispose: () => this.disposeWebPanel(record),
++    }
++  }
++
+   /** Arm the health gate immediately before the native shell starts loading. */
+   beginRendererBootMonitoring(
+     options: DesktopRendererHealthGateOptions,
+@@ -208,6 +304,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+         try {
+           this.profileCreateWindow?.close()
+           this.profileCreateWindow = undefined
++          this.closeWebPanelViews()
+           await this.generation?.release()
+         } finally {
+           this.generation = undefined
+@@ -287,7 +384,10 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+           this.logError(`dsh-plugin-desktop: failed to resolve update installer cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
+         })
+       }).catch((cause: unknown) => {
+-        if (this.generation === generation) this.generation = undefined
++        if (this.generation === generation) {
++          this.closeWebPanelViews()
++          this.generation = undefined
++        }
+         throw cause
+       })
+     }
+@@ -304,6 +404,190 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
+     this.generation?.notifyAttention(notification)
+   }
+
++  /** Return a copied status without exposing Electron objects. */
++  private webPanelStatus(record: NativeWebPanelRecord): DesktopWebPanelStatus {
++    this.assertWebPanelActive(record)
++    const currentUrl = record.view?.webContents.getURL() || record.spec.url
++    return {
++      state: record.state,
++      url: currentUrl,
++      ...(record.error === undefined ? {} : { error: record.error }),
++    }
++  }
++
++  /** Create one sandboxed remote view and attach its navigation policy. */
++  private createWebPanelView(record: NativeWebPanelRecord): WebContentsView {
++    this.assertWebPanelActive(record)
++    const existing = record.view
++    if (existing !== undefined && !existing.webContents.isDestroyed()) return existing
++    const generation = this.generation
++    if (generation === undefined) {
++      throw new Error('dsh-plugin-desktop: native window is not ready for Web panels')
++    }
++    const view = new WebContentsView({
++      webPreferences: {
++        contextIsolation: true,
++        nodeIntegration: false,
++        partition: record.spec.partition,
++        sandbox: true,
++        webSecurity: true,
++      },
++    })
++    view.setVisible(false)
++    const navigate = (event: Electron.Event<{ url: string, isMainFrame: boolean }>): void => {
++      if (!event.isMainFrame) return
++      try {
++        if (record.spec.allowedOrigins.has(new URL(event.url).origin)) return
++      } catch {
++        // Malformed main-frame targets are rejected below.
++      }
++      event.preventDefault()
++    }
++    view.webContents.on('will-frame-navigate', navigate)
++    view.webContents.on('will-redirect', navigate)
++    view.webContents.on('will-attach-webview', event => { event.preventDefault() })
++    view.webContents.setWindowOpenHandler(({ url }) => {
++      try {
++        const target = new URL(url)
++        if (record.spec.allowedOrigins.has(target.origin)) {
++          void view.webContents.loadURL(target.href).catch((cause: unknown) => {
++            this.logError(`dsh-plugin-desktop: Web panel navigation failed: ${cause instanceof Error ? cause.message : String(cause)}`)
++          })
++        } else if (target.protocol === 'https:' || target.protocol === 'http:' || target.protocol === 'mailto:') {
++          void shell.openExternal(target.href).catch((cause: unknown) => {
++            this.logError(`dsh-plugin-desktop: failed to open Web panel link: ${cause instanceof Error ? cause.message : String(cause)}`)
++          })
++        }
++      } catch {
++        // A malformed target is rejected with the same deny result.
++      }
++      return { action: 'deny' }
++    })
++    generation.attachWebPanel(view)
++    record.view = view
++    return view
++  }
++
++  /** Load the initial page once and share the in-flight operation. */
++  private readyWebPanel(record: NativeWebPanelRecord): Promise<DesktopWebPanelStatus> {
++    try {
++      this.assertWebPanelActive(record)
++      if (record.state === 'ready') return Promise.resolve(this.webPanelStatus(record))
++      if (record.loadTask !== undefined) return record.loadTask
++      const view = this.createWebPanelView(record)
++      record.state = 'loading'
++      record.error = undefined
++      const loadTask = view.webContents.loadURL(record.spec.url).then(
++        () => {
++          this.assertWebPanelActive(record)
++          record.state = 'ready'
++          return this.webPanelStatus(record)
++        },
++        (cause: unknown) => {
++          this.assertWebPanelActive(record)
++          record.state = 'failed'
++          record.error = cause instanceof Error ? cause.message : String(cause)
++          throw cause
++        },
++      ).finally(() => {
++        if (record.loadTask === loadTask) record.loadTask = undefined
++      })
++      record.loadTask = loadTask
++      return loadTask
++    } catch (cause) {
++      return Promise.reject(cause)
++    }
++  }
++
++  /** Load before exposing the view so the renderer never shows a bitmap surrogate. */
++  private async showWebPanel(
++    record: NativeWebPanelRecord,
++    bounds: DesktopWebPanelBounds,
++  ): Promise<DesktopWebPanelStatus> {
++    const resolvedBounds = validateWebPanelBounds(bounds)
++    const status = await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    this.generation!.positionWebPanel(view, resolvedBounds)
++    view.setVisible(true)
++    return status
++  }
++
++  /** Hide without discarding the remote page or its persistent session. */
++  private hideWebPanel(record: NativeWebPanelRecord): void {
++    this.assertWebPanelActive(record)
++    record.view?.setVisible(false)
++  }
++
++  /** Reload the current allowed page through a promise-returning navigation. */
++  private async reloadWebPanel(record: NativeWebPanelRecord): Promise<DesktopWebPanelStatus> {
++    await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    const currentUrl = view.webContents.getURL() || record.spec.url
++    const currentOrigin = new URL(currentUrl).origin
++    if (!record.spec.allowedOrigins.has(currentOrigin)) {
++      throw new Error('dsh-plugin-desktop: Web panel current origin is not allowed')
++    }
++    record.state = 'loading'
++    record.error = undefined
++    try {
++      await view.webContents.loadURL(currentUrl)
++      this.assertWebPanelActive(record)
++      record.state = 'ready'
++      return this.webPanelStatus(record)
++    } catch (cause) {
++      this.assertWebPanelActive(record)
++      record.state = 'failed'
++      record.error = cause instanceof Error ? cause.message : String(cause)
++      throw cause
++    }
++  }
++
++  /** Run one fixed plugin-owned extractor after the remote page is ready. */
++  private async evaluateWebPanel<T>(record: NativeWebPanelRecord, expression: string): Promise<T> {
++    if (expression.length === 0 || expression.length > MAX_CAPTURE_EXPRESSION_CHARS || expression.includes('\0')) {
++      throw new Error('dsh-plugin-desktop: Web panel expression is empty, oversized, or contains NUL')
++    }
++    await this.readyWebPanel(record)
++    const view = this.createWebPanelView(record)
++    return await view.webContents.executeJavaScript(expression, true) as T
++  }
++
++  /** Close one remote renderer and release its identity for this generation. */
++  private async disposeWebPanel(record: NativeWebPanelRecord): Promise<void> {
++    if (record.disposed) return
++    record.disposed = true
++    this.webPanels.delete(record.spec.id)
++    await record.loadTask?.catch(() => {})
++    const view = record.view
++    record.view = undefined
++    if (view === undefined) return
++    view.setVisible(false)
++    this.generation?.detachWebPanel(view)
++    if (!view.webContents.isDestroyed()) view.webContents.close()
++  }
++
++  /** Reject use through a disposed registration. */
++  private assertWebPanelActive(record: NativeWebPanelRecord): void {
++    if (record.disposed) {
++      throw new Error(`dsh-plugin-desktop: Web panel ${JSON.stringify(record.spec.id)} disposed`)
++    }
++  }
++
++  /** Close every attached view before its parent BrowserWindow is destroyed. */
++  private closeWebPanelViews(): void {
++    for (const record of this.webPanels.values()) {
++      const view = record.view
++      if (view === undefined) continue
++      view.setVisible(false)
++      this.generation?.detachWebPanel(view)
++      if (!view.webContents.isDestroyed()) view.webContents.close()
++      record.view = undefined
++      record.loadTask = undefined
++      record.state = 'idle'
++      record.error = undefined
++    }
++  }
++
+   /** @inheritdoc */
+   async pickDirectory(): Promise<string | null> {
+     return await this.workspaceAdmission.pickDirectory()
+diff --git a/dsh-plugin-desktop/src/electron-shell-generation.ts b/dsh-plugin-desktop/src/electron-shell-generation.ts
+index 9bc3ef740..80e65afc4 100644
+--- a/dsh-plugin-desktop/src/electron-shell-generation.ts
++++ b/dsh-plugin-desktop/src/electron-shell-generation.ts
+@@ -10,6 +10,7 @@ import {
+   shell,
+   Tray,
+   type WebContents,
++  type WebContentsView,
+ } from 'electron'
+ import { CompatibilityShell, type CompatibilityShellActions } from './compatibility-shell.ts'
+ import { formatDesktopExitCode } from './desktop-logger.ts'
+@@ -791,6 +792,41 @@ export class ElectronShellGeneration {
+     if (this.window !== undefined && !this.window.isDestroyed()) this.refreshNativeMaterial?.()
+   }
+
++  /** Attach a native panel above the Renderer and below the independent caption and its menus. */
++  attachWebPanel(view: WebContentsView): void {
++    const window = this.window
++    if (this.released || window === undefined || window.isDestroyed()) {
++      throw new Error('dsh-plugin-desktop: native window is not ready for Web panels')
++    }
++    window.contentView.addChildView(view)
++    if (this.compatibilityShell !== undefined) {
++      window.contentView.addChildView(this.compatibilityShell.chromeView)
++    }
++  }
++
++  /** Place a native panel over renderer CSS coordinates, including shell offset and zoom. */
++  positionWebPanel(view: WebContentsView, bounds: Electron.Rectangle): void {
++    const renderer = this.renderer
++    if (renderer === undefined || renderer.isDestroyed()) {
++      throw new Error('dsh-plugin-desktop: renderer is not ready for Web panels')
++    }
++    const origin = this.compatibilityShell?.content.getBounds() ?? { x: 0, y: 0 }
++    const zoom = renderer.getZoomFactor()
++    view.setBounds({
++      x: origin.x + Math.round(bounds.x * zoom),
++      y: origin.y + Math.round(bounds.y * zoom),
++      width: Math.round(bounds.width * zoom),
++      height: Math.round(bounds.height * zoom),
++    })
++  }
++
++  /** Detach one plugin-owned native panel while the active window still exists. */
++  detachWebPanel(view: WebContentsView): void {
++    const window = this.window
++    if (window === undefined || window.isDestroyed()) return
++    window.contentView.removeChildView(view)
++  }
++
+   async release(): Promise<void> {
+     if (this.released) return
+     this.released = true
+diff --git a/dsh-plugin-desktop/src/host-bootstrap.ts b/dsh-plugin-desktop/src/host-bootstrap.ts
+index ca701b1e7..c4d88da9c 100644
+--- a/dsh-plugin-desktop/src/host-bootstrap.ts
++++ b/dsh-plugin-desktop/src/host-bootstrap.ts
+@@ -9,6 +9,7 @@ import { installProfilePackageResolver } from './module-resolution.ts'
+ import { createDesktopWebProfile, listDesktopProfiles, canDeleteDesktopProfile, deleteDesktopProfile, selectDesktopProfile } from './profile-manager.ts'
+ import { DesktopProfileService } from './profile-service.ts'
+ import { DesktopActionsService } from './desktop-actions.ts'
++import { DesktopWebPanelService } from './web-panels.ts'
+ import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+ import { desktopMarketSnapshotWithEffective, selectDesktopMarketProvider, type DesktopMarketProvider, type DesktopMarketSnapshot } from './desktop-market.ts'
+ import DesktopSettingsController from './desktop-settings-controller.ts'
+@@ -162,6 +163,7 @@ export async function bootDesktopHost(options: DesktopHostOptions, runtime: Desk
+           persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
+           requestRestart: () => runtime.requestRestart(),
+         })
++        await hostCtx.plugin(DesktopWebPanelService, runtime)
+         let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+         const scheduleSettingsRestart = (): void => {
+           pendingSettingsRestart ??= setImmediate(() => {
+diff --git a/dsh-plugin-desktop/src/host-runtime-bridge.ts b/dsh-plugin-desktop/src/host-runtime-bridge.ts
+index f53280582..11aeff7a4 100644
+--- a/dsh-plugin-desktop/src/host-runtime-bridge.ts
++++ b/dsh-plugin-desktop/src/host-runtime-bridge.ts
+@@ -1,5 +1,6 @@
+ /** Native capability adapters; frontend HTTP and WebSocket connections are unchanged. */
+ import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem, DesktopTrayItemRegistration, DesktopUpdateAdapter } from './runtime.ts'
++import type { DesktopWebPanelRegistration, DesktopWebPanelStatus } from './web-panels.ts'
+ import { HostRpc } from './host-rpc.ts'
+
+ export type RuntimeSnapshot = Pick<DesktopRuntime, 'platform' | 'windowsBuild' | 'locale'> & {
+@@ -61,6 +62,57 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
+       downloadAndOpen: (version, signal, channel) => send('update:downloadAndOpen', [version, channel], signal),
+       notify: notification => { void send('update:notify', [notification]) },
+     },
++    registerWebPanel(spec) {
++      const id = `web-panel:${++sequence}`
++      let active = true
++      let status: DesktopWebPanelStatus = { state: 'idle', url: spec.url }
++      const registered = send<void>('web-panel:register', [id, spec])
++      trackSetup(registered)
++      const assertActive = (): void => {
++        if (!active) throw new Error(`dsh-plugin-desktop: Web panel ${JSON.stringify(spec.id)} disposed`)
++      }
++      const update = async (method: string, args: unknown[] = []): Promise<DesktopWebPanelStatus> => {
++        assertActive()
++        try {
++          await registered
++          status = await send<DesktopWebPanelStatus>(method, [id, ...args])
++          return status
++        } catch (cause) {
++          status = {
++            state: 'failed',
++            url: status.url,
++            error: cause instanceof Error ? cause.message : String(cause),
++          }
++          throw cause
++        }
++      }
++      return {
++        id: spec.id,
++        status: () => { assertActive(); return { ...status } },
++        ready: () => update('web-panel:ready'),
++        show: bounds => update('web-panel:show', [bounds]),
++        hide: () => {
++          if (!active) return
++          void registered.then(() => send('web-panel:hide', [id])).catch(() => {})
++        },
++        reload: () => update('web-panel:reload'),
++        evaluate: async <T>(expression: string): Promise<T> => {
++          assertActive()
++          await registered
++          return await send<T>('web-panel:evaluate', [id, expression])
++        },
++        dispose: async () => {
++          if (!active) return
++          active = false
++          try {
++            await registered
++          } catch {
++            return
++          }
++          await send('web-panel:dispose', [id])
++        },
++      }
++    },
+     schedule(spec) {
+       const callback = callbacks({ quit: spec.requestQuit, mode: spec.requestModeChange,
+         ...(spec.readRemoteControl ? { remoteRead: spec.readRemoteControl } : {}),
+@@ -133,12 +185,18 @@ export function createHostRuntime(rpc: HostRpc, snapshot: RuntimeSnapshot): Desk
+ /** Install only the declared native surface; never expose arbitrary Electron APIs. */
+ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () => Promise<void> {
+   const trays = new Map<string, DesktopTrayItemRegistration>()
++  const webPanels = new Map<string, DesktopWebPanelRegistration>()
+   const shells = new Map<string, () => Promise<void>>()
+   const preferences = new Map<string, { locale: any; theme: any }>()
+   const releases: (() => void)[] = []
+   const handle = (name: string, fn: (args: any[], signal: AbortSignal) => unknown) => { releases.push(rpc.handle(name, fn)) }
+   const callback = (method: string, args: unknown[] = []) => rpc.call(method, args)
+   const report = (promise: Promise<unknown>) => { void promise.catch(error => process.stderr.write(`${String(error)}\n`)) }
++  const webPanel = (id: string): DesktopWebPanelRegistration => {
++    const panel = webPanels.get(id)
++    if (panel === undefined) throw new Error('Native Web panel registration is unavailable')
++    return panel
++  }
+   for (const method of ['show', 'notifyAttention', 'openTerminal', 'reloadRenderer', 'toggleDeveloperTools',
+     'exportDiagnostics', 'pickDirectory', 'validateDirectory', 'reportRendererBoot',
+     'setThemeSource', 'prepareToQuit'] as const) {
+@@ -182,6 +240,20 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () =>
+     trays.set(id, runtime.registerTrayItem({ ...project(data), submenu: data.submenu ? () => data.submenu.map(project) : undefined }))
+   })
+   handle('tray:dispose', ([id]) => { trays.get(id)?.dispose(); trays.delete(id) })
++  handle('web-panel:register', ([id, spec]) => {
++    if (webPanels.has(id)) throw new Error('Duplicate native Web panel registration')
++    webPanels.set(id, runtime.registerWebPanel(spec))
++  })
++  handle('web-panel:ready', ([id]) => webPanel(id).ready())
++  handle('web-panel:show', ([id, bounds]) => webPanel(id).show(bounds))
++  handle('web-panel:hide', ([id]) => { webPanel(id).hide() })
++  handle('web-panel:reload', ([id]) => webPanel(id).reload())
++  handle('web-panel:evaluate', ([id, expression]) => webPanel(id).evaluate(expression))
++  handle('web-panel:dispose', async ([id]) => {
++    const panel = webPanels.get(id)
++    webPanels.delete(id)
++    await panel?.dispose()
++  })
+   handle('update:request', async ([url, init], signal) => {
+     const response = await runtime.updates.request(url, { ...init, signal })
+     return { body: await response.text(), status: response.status, headers: [...response.headers.entries()] }
+@@ -192,6 +264,7 @@ export function bindNativeRuntime(rpc: HostRpc, runtime: DesktopRuntime): () =>
+   handle('update:notify', ([value]) => runtime.updates.notify(value))
+   return async () => {
+     trays.forEach(tray => tray.dispose()); trays.clear()
++    await Promise.all([...webPanels.values()].map(panel => panel.dispose())); webPanels.clear()
+     await Promise.all([...shells.values()].map(dispose => dispose())); shells.clear(); preferences.clear()
+     releases.forEach(release => release())
+   }
+diff --git a/dsh-plugin-desktop/src/main.ts b/dsh-plugin-desktop/src/main.ts
+index fd0904384..d84eade6b 100644
+--- a/dsh-plugin-desktop/src/main.ts
++++ b/dsh-plugin-desktop/src/main.ts
+@@ -78,6 +78,7 @@ import {
+   selectDesktopProfile,
+ } from './profile-manager.ts'
+ import { DesktopProfileService } from './profile-service.ts'
++import { DesktopWebPanelService } from './web-panels.ts'
+ import { DesktopActionsService } from './desktop-actions.ts'
+ import { clearDesktopProfilePluginState, DesktopPluginsService } from './desktop-plugins.ts'
+ import {
+@@ -1624,6 +1625,7 @@ async function start(): Promise<void> {
+             persistSelection: name => { selectDesktopProfile(selectionStatePath, homeDir, name) },
+             requestRestart: () => runtime.requestRestart(),
+           })
++          await hostCtx.plugin(DesktopWebPanelService, runtime)
+           let pendingSettingsRestart: ReturnType<typeof setImmediate> | undefined
+           const scheduleSettingsRestart = (): void => {
+             pendingSettingsRestart ??= setImmediate(() => {
+diff --git a/dsh-plugin-desktop/src/runtime.ts b/dsh-plugin-desktop/src/runtime.ts
+index e688f0b36..00f492bf4 100644
+--- a/dsh-plugin-desktop/src/runtime.ts
++++ b/dsh-plugin-desktop/src/runtime.ts
+@@ -4,6 +4,10 @@ import type { RendererBootReport } from './renderer-boot-contract.ts'
+ import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
+ import type { DesktopInstallationId } from './desktop-installation-id.ts'
+ import type { ProfileCreateWindowOptions } from './profile-create-window.ts'
++import type {
++  DesktopWebPanelRegistration,
++  DesktopWebPanelSpec,
++} from './web-panels.ts'
+ import type {
+   DesktopWindowMaterial,
+   MacosWindowMaterial,
+@@ -180,6 +184,13 @@ export interface DesktopRuntime {
+   /** Native network, update-download, and notification adapter. */
+   readonly updates: DesktopUpdateAdapter
+
++  /**
++   * Register one launcher-owned native Web panel for a public Host service.
++   * @param spec - validated by the Electron adapter before remote content loads.
++   * @returns an effect-scoped panel registration.
++   */
++  registerWebPanel(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration
++
+   /**
+    * Register one shell generation while the Cordis profile is activating.
+    * @param spec - native shell inputs resolved from active Host services.
+diff --git a/dsh-plugin-desktop/src/web-panels.ts b/dsh-plugin-desktop/src/web-panels.ts
+new file mode 100644
+index 000000000..75fc87ab8
+--- /dev/null
++++ b/dsh-plugin-desktop/src/web-panels.ts
+@@ -0,0 +1,128 @@
++/** Generation-scoped native WebContentsView panels for Desktop Host plugins. */
++
++import { type Context, Service } from '@deepseek-ai/cordis'
++import type { DesktopRuntime } from './runtime.ts'
++
++/** Rectangle in the DSH renderer's CSS viewport coordinates. */
++export interface DesktopWebPanelBounds {
++  /** Left offset in CSS pixels. */
++  x: number
++  /** Top offset in CSS pixels. */
++  y: number
++  /** Visible width in CSS pixels. */
++  width: number
++  /** Visible height in CSS pixels. */
++  height: number
++}
++
++/** One remote page owned by a Desktop Host plugin. */
++export interface DesktopWebPanelSpec {
++  /** Stable profile-local identity used for the persistent session partition. */
++  id: string
++  /** Initial HTTPS page. */
++  url: string
++  /** HTTPS origins allowed for main-frame navigation. */
++  allowedOrigins: readonly string[]
++}
++
++/** Observable state for one native Web panel. */
++export interface DesktopWebPanelStatus {
++  /** Current native lifecycle state. */
++  state: 'idle' | 'loading' | 'ready' | 'failed'
++  /** Last committed main-frame URL. */
++  url: string
++  /** Last load failure, when present. */
++  error?: string
++}
++
++/** Effect-scoped control surface returned to one Host plugin. */
++export interface DesktopWebPanelRegistration {
++  /** Stable caller-provided identity. */
++  readonly id: string
++  /** Read current lifecycle state without loading the page. */
++  status(): DesktopWebPanelStatus
++  /** Create and load the native page without making it visible. */
++  ready(): Promise<DesktopWebPanelStatus>
++  /** Place the native page above renderer CSS bounds, accounting for native chrome and zoom. */
++  show(bounds: DesktopWebPanelBounds): Promise<DesktopWebPanelStatus>
++  /** Hide the native page while retaining its login session and page state. */
++  hide(): void
++  /** Reload the current page and wait for navigation to settle. */
++  reload(): Promise<DesktopWebPanelStatus>
++  /**
++   * Evaluate a bundled capture expression inside the remote page.
++   * @param expression - fixed plugin-owned JavaScript, never request input.
++   * @returns the expression result copied across the Electron process boundary.
++   */
++  evaluate<T>(expression: string): Promise<T>
++  /** Remove the view and close its WebContents. Repeated disposal has no effect. */
++  dispose(): Promise<void>
++}
++
++/** Supported native-page capability available to Desktop Host plugins. */
++export interface DesktopWebPanels {
++  /**
++   * Register one HTTPS page for the current Cordis generation.
++   * @param spec - stable identity, initial page, and exact navigation origins.
++   * @returns an effect-scoped native panel registration.
++   */
++  register(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration
++}
++
++declare module '@deepseek-ai/cordis' {
++  interface Context {
++    /** Native remote-page panels hosted above the sandboxed DSH Web renderer. */
++    desktopWebPanels: DesktopWebPanels
++  }
++}
++
++/** Cordis service that publishes the launcher-owned native panel adapter. */
++export class DesktopWebPanelService extends Service implements DesktopWebPanels {
++  private readonly registrations = new Set<DesktopWebPanelRegistration>()
++  private disposed = false
++
++  /**
++   * Register the public capability for one Desktop generation.
++   * @param ctx - Cordis context owning this exact service lifetime.
++   * @param runtime - launcher-private Electron adapter.
++   */
++  constructor(ctx: Context, private readonly runtime: DesktopRuntime) {
++    super(ctx, 'desktopWebPanels')
++    ctx.effect(
++      () => async () => {
++        this.disposed = true
++        const registrations = [...this.registrations]
++        this.registrations.clear()
++        await Promise.all(registrations.map(registration => registration.dispose()))
++      },
++      'dsh-plugin-desktop: native Web panel service lifetime',
++    )
++  }
++
++  /** @inheritdoc */
++  register(spec: DesktopWebPanelSpec): DesktopWebPanelRegistration {
++    if (this.disposed) {
++      throw new Error('dsh-plugin-desktop: desktopWebPanels service disposed')
++    }
++    const registration = this.runtime.registerWebPanel(spec)
++    this.registrations.add(registration)
++    let active = true
++    return {
++      id: registration.id,
++      status: () => registration.status(),
++      ready: () => registration.ready(),
++      show: bounds => registration.show(bounds),
++      hide: () => { registration.hide() },
++      reload: () => registration.reload(),
++      evaluate: expression => registration.evaluate(expression),
++      dispose: async () => {
++        if (!active) return
++        active = false
++        this.registrations.delete(registration)
++        await registration.dispose()
++      },
++    }
++  }
++}
++
++export default DesktopWebPanelService
+diff --git a/dsh-plugin-desktop/tests/electron-runtime.spec.ts b/dsh-plugin-desktop/tests/electron-runtime.spec.ts
+index bac859a8b..a0cdb2be4 100644
+--- a/dsh-plugin-desktop/tests/electron-runtime.spec.ts
++++ b/dsh-plugin-desktop/tests/electron-runtime.spec.ts
+@@ -114,6 +114,7 @@ const electron = vi.hoisted(() => {
+     closeDevTools: vi.fn(() => { devToolsOpened = false }),
+     executeJavaScript: vi.fn(async (_code: string, _userGesture?: boolean) => null as unknown),
+     getZoomLevel: vi.fn(() => zoomLevel),
++    getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
+     isDevToolsOpened: vi.fn(() => devToolsOpened),
+     on: vi.fn(),
+     off: vi.fn(),
+@@ -140,14 +141,42 @@ const electron = vi.hoisted(() => {
+     loadFile: vi.fn(async () => {}),
+     close: vi.fn(),
+   }
++  const webPanelContents: Array<{
++    close: ReturnType<typeof vi.fn>
++    executeJavaScript: ReturnType<typeof vi.fn>
++    getURL: ReturnType<typeof vi.fn>
++    isDestroyed: ReturnType<typeof vi.fn>
++    loadURL: ReturnType<typeof vi.fn>
++    on: ReturnType<typeof vi.fn>
++    setWindowOpenHandler: ReturnType<typeof vi.fn>
++  }> = []
+   const contentViews: WebContentsView[] = []
+   class WebContentsView {
+-    readonly webContents: typeof webContents | typeof chromeWebContents
+-    readonly setBounds = vi.fn()
++    readonly webContents: typeof webContents | typeof chromeWebContents | typeof webPanelContents[number]
++    private bounds = { x: 0, y: 0, width: 0, height: 0 }
++    readonly setBounds = vi.fn((bounds: typeof this.bounds) => { this.bounds = bounds })
++    readonly getBounds = vi.fn(() => this.bounds)
+     readonly setBackgroundColor = vi.fn()
++    readonly setVisible = vi.fn()
+     constructor(readonly options: unknown) {
+-      this.webContents = (options as { webPreferences: { partition: string } }).webPreferences.partition === 'dsh-desktop-compatibility-chrome'
+-        ? chromeWebContents : webContents
++      const partition = (options as { webPreferences: { partition: string } }).webPreferences.partition
++      if (partition.startsWith('persist:dsh-web-panel-')) {
++        let url = ''
++        const panelContents = {
++          close: vi.fn(),
++          executeJavaScript: vi.fn(async (_expression: string, _userGesture: boolean) => ({ captured: true })),
++          getURL: vi.fn(() => url),
++          isDestroyed: vi.fn(() => false),
++          loadURL: vi.fn(async (nextUrl: string) => { url = nextUrl }),
++          on: vi.fn(),
++          setWindowOpenHandler: vi.fn(),
++        }
++        webPanelContents.push(panelContents)
++        this.webContents = panelContents
++      } else {
++        this.webContents = partition === 'dsh-desktop-compatibility-chrome'
++          ? chromeWebContents : webContents
++      }
+       contentViews.push(this)
+     }
+   }
+@@ -158,7 +187,20 @@ const electron = vi.hoisted(() => {
+
+   class BrowserWindow {
+     readonly webContents: typeof webContents | typeof chromeWebContents
+-    readonly contentView = { addChildView: vi.fn(), removeChildView: vi.fn() }
++    readonly contentView = {
++      children: [] as WebContentsView[],
++      addChildView: vi.fn((view: WebContentsView) => {
++        const children = this.contentView.children
++        const index = children.indexOf(view)
++        if (index !== -1) children.splice(index, 1)
++        children.push(view)
++      }),
++      removeChildView: vi.fn((view: WebContentsView) => {
++        const children = this.contentView.children
++        const index = children.indexOf(view)
++        if (index !== -1) children.splice(index, 1)
++      }),
++    }
+     readonly getContentSize = vi.fn(() => [1280, 840])
+     readonly loadFile = vi.fn(async () => {})
+     accessibleTitle = ''
+@@ -248,6 +290,7 @@ const electron = vi.hoisted(() => {
+     BrowserWindow,
+     WebContentsView,
+     contentViews,
++    webPanelContents,
+     chromeWebContents,
+     browserWindowOptions,
+     browserWindowThemeSources,
+@@ -359,6 +402,7 @@ describe('Electron desktop runtime', () => {
+     electron.browserWindowThemeSources.length = 0
+     electron.browserWindows.length = 0
+     electron.contentViews.length = 0
++    electron.webPanelContents.length = 0
+     electron.trays.length = 0
+     electron.applicationMenuTemplates.length = 0
+     electron.menuTemplates.length = 0
+@@ -467,6 +511,124 @@ describe('Electron desktop runtime', () => {
+     expect(electron.trays[0]?.off).toHaveBeenCalledWith('click', expect.any(Function))
+   })
+
++  it('hosts a sandboxed persistent remote page and captures only on explicit evaluation', async () => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const panel = runtime.registerWebPanel({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    const release = runtime.schedule(spec)
++
++    await runtime.mountScheduled()
++    expect(electron.webPanelContents).toHaveLength(0)
++
++    await expect(panel.ready()).resolves.toMatchObject({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/',
++    })
++    const view = electron.contentViews[2]
++    const contents = electron.webPanelContents[0]
++    expect(view?.options).toEqual({
++      webPreferences: {
++        contextIsolation: true,
++        nodeIntegration: false,
++        partition: 'persist:dsh-web-panel-specsrelay-deepseek',
++        sandbox: true,
++        webSecurity: true,
++      },
++    })
++    expect(electron.browserWindows[0]?.contentView.addChildView).toHaveBeenCalledWith(view)
++    expect(view?.setVisible).toHaveBeenCalledWith(false)
++    expect(contents?.executeJavaScript).not.toHaveBeenCalled()
++
++    await panel.show({ x: 12, y: 80, width: 760, height: 620 })
++    expect(view?.setBounds).toHaveBeenCalledWith({ x: 12, y: 116, width: 760, height: 620 })
++    expect(view?.setVisible).toHaveBeenLastCalledWith(true)
++
++    await expect(panel.evaluate<{ captured: boolean }>('captureConversation()'))
++      .resolves.toEqual({ captured: true })
++    expect(contents?.executeJavaScript).toHaveBeenCalledWith('captureConversation()', true)
++
++    panel.hide()
++    expect(view?.setVisible).toHaveBeenLastCalledWith(false)
++    await panel.reload()
++    expect(contents?.loadURL).toHaveBeenLastCalledWith('https://chat.deepseek.com/')
++    await panel.dispose()
++    expect(electron.browserWindows[0]?.contentView.removeChildView).toHaveBeenCalledWith(view)
++    expect(contents?.close).toHaveBeenCalledOnce()
++    await expect(panel.ready()).rejects.toThrow('disposed')
++
++    await release()
++  })
++
++  it.each(['compatibility', 'extended', 'advanced'] as const)('aligns Web panels with renderer coordinates in %s mode', async mode => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const release = runtime.schedule({ ...spec, mode })
++    await runtime.mountScheduled()
++    const panel = runtime.registerWebPanel({
++      id: 'panel-layout', url: 'https://example.com/', allowedOrigins: ['https://example.com'],
++    })
++    const offsetY = mode === 'advanced' ? 0 : 36
++    await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++    const view = electron.contentViews.at(-1)
++    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 50 + offsetY, width: 800, height: 600 })
++    electron.webContents.setZoomLevel(1)
++    await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 12, y: 60 + offsetY, width: 960, height: 720 })
++    await release()
++  })
++
++  it.each(['compatibility', 'extended', 'advanced'] as const)('keeps caption menus above added Web panels in %s mode', async mode => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++    const release = runtime.schedule({ ...spec, mode })
++    await runtime.mountScheduled()
++    const content = electron.browserWindows[0]!.contentView
++    const baseViews = [...content.children]
++    const panels = []
++    const views = []
++    for (const id of ['first-page', 'second-page']) {
++      const panel = runtime.registerWebPanel({
++        id, url: 'https://example.com/', allowedOrigins: ['https://example.com'],
++      })
++      await panel.show({ x: 10, y: 50, width: 800, height: 600 })
++      panels.push(panel)
++      views.push(electron.contentViews.at(-1)!)
++      expect(content.children).toEqual(mode === 'advanced'
++        ? [...baseViews, ...views]
++        : [baseViews[0], ...views, baseViews[1]])
++    }
++    await panels[0]!.dispose()
++    expect(content.children).toEqual(mode === 'advanced'
++      ? [...baseViews, views[1]]
++      : [baseViews[0], views[1], baseViews[1]])
++    await release()
++  })
++
++  it('rejects unsafe native Web panel registrations before Electron construction', async () => {
++    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
++    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
++    const runtime = new ElectronDesktopRuntime(async () => {})
++
++    expect(() => runtime.registerWebPanel({
++      id: 'SpecsRelay',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })).toThrow('Web panel id')
++    expect(() => runtime.registerWebPanel({
++      id: 'specsrelay',
++      url: 'http://chat.deepseek.com/',
++      allowedOrigins: ['http://chat.deepseek.com'],
++    })).toThrow('must use HTTPS')
++    expect(electron.webPanelContents).toHaveLength(0)
++  })
++
+   it('attaches the renderer capability to same-origin HTTP and WebSocket requests only', async () => {
+     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+diff --git a/dsh-plugin-desktop/tests/host-process-integration.spec.ts b/dsh-plugin-desktop/tests/host-process-integration.spec.ts
+index 575811675..a05b7103f 100644
+--- a/dsh-plugin-desktop/tests/host-process-integration.spec.ts
++++ b/dsh-plugin-desktop/tests/host-process-integration.spec.ts
+@@ -4,13 +4,14 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'nod
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { fileURLToPath } from 'node:url'
+-import { expect, it } from 'vitest'
++import { expect, it, vi } from 'vitest'
+ import { prepareDesktopProfile } from '../src/profile.ts'
+ import { desktopReleaseUserDataLocations } from '../src/profile-channel-admission.ts'
+ import { installDesktopPnpmRuntime } from '../src/desktop-runtime-environment.ts'
+ import { HostRpc } from '../src/host-rpc.ts'
+ import { bindNativeRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
+ import type { DesktopRuntime, DesktopShellSpec } from '../src/runtime.ts'
++import type { DesktopWebPanelSpec } from '../src/web-panels.ts'
+
+ it.each([false, true])('boots a separate Web Host with client plugins (AA enabled: %s)', async aaEnabled => {
+   const home = mkdtempSync(join(tmpdir(), 'dsh-isolated-host-'))
+@@ -29,7 +30,17 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     mkdirSync(plugin, { recursive: true })
+     writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: 'isolated-client-fixture', version: '1.0.0', type: 'module',
+       exports: { '.': './index.js', './client': './client.js', './package.json': './package.json' }, dsh: { client: { platform: 'web' } } }))
+-    writeFileSync(join(plugin, 'index.js'), 'export function apply() {}\n')
++    writeFileSync(join(plugin, 'index.js'), `
++      export const inject = ['desktopWebPanels']
++      export async function apply(ctx) {
++        const panel = ctx.desktopWebPanels.register({
++          id: 'isolated-web-panel-fixture',
++          url: 'https://example.com/',
++          allowedOrigins: ['https://example.com'],
++        })
++        await panel.ready()
++      }
++    `)
+     writeFileSync(join(plugin, 'client.js'), 'export function apply(ctx) { ctx.provide("isolatedClientFixture", true) }\n')
+     prepared.patches.push({ insert: [{ id: 'isolated-client-fixture', name: 'isolated-client-fixture' }] })
+     const packageRoot = new URL('../', import.meta.url)
+@@ -49,11 +60,19 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     }, 30_000)
+     child.on('exit', () => rpc?.close(stderr || 'worker exited'))
+     let shell: DesktopShellSpec | undefined
++    const panelReady = vi.fn(async () => ({ state: 'ready' as const, url: 'https://example.com/' }))
++    const panelDispose = vi.fn(async () => {})
++    const registerWebPanel = vi.fn((spec: DesktopWebPanelSpec) => ({
++      id: spec.id,
++      ready: panelReady,
++      dispose: panelDispose,
++    }))
+     const runtime = {
+       platform: 'win32', windowsBuild: 22631, locale: 'en',
+       updates: { isPackaged: false, canDownload: false, currentVersion: '2.0.7-beta.1', statePath: join(home, 'updates') },
+       schedule(spec: DesktopShellSpec) { shell = spec; return async () => {} },
+       registerTrayItem() { return { refresh() {}, dispose() {} } },
++      registerWebPanel,
+       setLocalePreference() {}, setThemeSource() {},
+     } as unknown as DesktopRuntime
+     releaseNative = bindNativeRuntime(rpc, runtime)
+@@ -75,6 +94,12 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     expect(result.pid).toBe(child.pid)
+     expect(result.pid).not.toBe(process.pid)
+     expect(shell).toBeDefined()
++    await expect.poll(() => panelReady.mock.calls.length).toBe(1)
++    expect(registerWebPanel).toHaveBeenCalledExactlyOnceWith({
++      id: 'isolated-web-panel-fixture',
++      url: 'https://example.com/',
++      allowedOrigins: ['https://example.com'],
++    })
+     const spec = shell!
+     const headers = { [spec.rendererAccessHeader.name]: spec.rendererAccessHeader.value }
+     const unauthorized = await fetch(spec.url, { headers })
+@@ -99,6 +124,7 @@ it.each([false, true])('boots a separate Web Host with client plugins (AA enable
+     await expect.poll(async () => (await rpc!.call<{ services: { aaRuntime: boolean; aaOnboarding: boolean } }>('status')).services, { timeout: 3000 })
+       .toEqual({ aaRuntime: aaEnabled, aaOnboarding: aaEnabled })
+     await rpc.call('stop')
++    expect(panelDispose).toHaveBeenCalledTimes(1)
+     await expect(fetch(spec.url, { headers })).rejects.toThrow()
+   } catch (error) {
+     throw new Error(`${error instanceof Error ? error.stack : String(error)}\n${stderr}`)
+diff --git a/dsh-plugin-desktop/tests/host-runtime-bridge.spec.ts b/dsh-plugin-desktop/tests/host-runtime-bridge.spec.ts
+index 02fc57403..da6b81f96 100644
+--- a/dsh-plugin-desktop/tests/host-runtime-bridge.spec.ts
++++ b/dsh-plugin-desktop/tests/host-runtime-bridge.spec.ts
+@@ -4,6 +4,7 @@ import { HostRpc } from '../src/host-rpc.ts'
+ import { bindNativeRuntime, createHostRuntime, runtimeSnapshot } from '../src/host-runtime-bridge.ts'
+ import { desktopTrayLabel } from '../src/tray-locale.ts'
+ import type { DesktopLocale, DesktopRuntime, DesktopShellSpec, DesktopTrayItem } from '../src/runtime.ts'
++import type { DesktopWebPanelRegistration } from '../src/web-panels.ts'
+
+ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on changes (preference: %s)', async initialPreference => {
+   const { port1, port2 } = new MessageChannel()
+@@ -16,6 +17,18 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+   const disposeShell = vi.fn(async () => {})
+   const disposeTray = vi.fn()
+   let nativeLocale: DesktopLocale = 'en'
++  const disposeWebPanel = vi.fn(async () => {})
++  const nativeWebPanel: DesktopWebPanelRegistration = {
++    id: 'specsrelay-deepseek',
++    status: () => ({ state: 'idle', url: 'https://chat.deepseek.com/' }),
++    ready: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    show: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/a/chat/s/test' }),
++    hide: vi.fn(),
++    reload: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/a/chat/s/test' }),
++    evaluate: async <T>() => ({ captured: true }) as T,
++    dispose: disposeWebPanel,
++  }
++  const registerWebPanel = vi.fn(() => nativeWebPanel)
+   const native = {
+     platform: 'win32', windowsBuild: 22631, get locale() { return nativeLocale },
+     setLocalePreference: (preference: DesktopLocale | undefined) => { nativeLocale = preference ?? 'zh' },
+@@ -24,6 +37,7 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     },
+     schedule: (value: DesktopShellSpec) => { shell = value; return disposeShell },
+     registerTrayItem: (value: DesktopTrayItem) => { tray = value; return { refresh() {}, dispose: disposeTray } },
++    registerWebPanel,
+   } as unknown as DesktopRuntime
+   const release = bindNativeRuntime(parent, native)
+   try {
+@@ -43,7 +57,28 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     runtime.registerTrayItem({ group: 'tools', order: 1, label: () => desktopTrayLabel(runtime.locale, 'openTerminal'), invoke,
+       submenu: () => [{ label: () => desktopTrayLabel(runtime.locale, 'checkForUpdates'), invoke }] })
+     language = initialPreference
++    const panel = runtime.registerWebPanel({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    expect(panel.status()).toEqual({ state: 'idle', url: 'https://chat.deepseek.com/' })
+     await runtime.mountScheduled()
++    expect(registerWebPanel).toHaveBeenCalledWith({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    await expect(panel.show({ x: 0, y: 36, width: 640, height: 804 })).resolves.toEqual({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/a/chat/s/test',
++    })
++    expect(panel.status()).toEqual({
++      state: 'ready',
++      url: 'https://chat.deepseek.com/a/chat/s/test',
++    })
++    await expect(panel.evaluate<{ captured: boolean }>('captureConversation()'))
++      .resolves.toEqual({ captured: true })
+     expect(await shell.readRemoteControl?.()).toBe(false)
+     await shell.enableRemoteControl?.()
+     expect(spec.enableRemoteControl).toHaveBeenCalledTimes(1)
+@@ -72,5 +107,7 @@ it.each(['zh', undefined] as const)('synchronizes tray language at boot and on c
+     expect(await response.json()).toEqual({ version: '2.0.8-beta.1' })
+     await stopShell()
+     expect(disposeShell).toHaveBeenCalledOnce()
++    await panel.dispose()
++    expect(disposeWebPanel).toHaveBeenCalledOnce()
+   } finally { await release(); parent.close(); child.close(); port1.close(); port2.close() }
+ })
+diff --git a/dsh-plugin-desktop/tests/package.spec.ts b/dsh-plugin-desktop/tests/package.spec.ts
+index 90824add9..8fefc13b8 100644
+--- a/dsh-plugin-desktop/tests/package.spec.ts
++++ b/dsh-plugin-desktop/tests/package.spec.ts
+@@ -121,6 +121,10 @@ describe('published package surface', () => {
+
+   it('exposes the Host plugin and desktop-owned client face', () => {
+     expect(manifest.exports).toHaveProperty('./client')
++    expect(manifest.exports).toHaveProperty('./web-panels', {
++      types: './lib/types/web-panels.d.ts',
++      default: './lib/web-panels.js',
++    })
+     expect(manifest.exports).toHaveProperty('./windows-pwsh-sandbox', {
+       types: './lib/types/windows-pwsh-sandbox.d.ts',
+       default: './lib/windows-pwsh-sandbox.js',
+diff --git a/dsh-plugin-desktop/tests/plugin.spec.ts b/dsh-plugin-desktop/tests/plugin.spec.ts
+index 12ffd6f97..6c86f415d 100644
+--- a/dsh-plugin-desktop/tests/plugin.spec.ts
++++ b/dsh-plugin-desktop/tests/plugin.spec.ts
+@@ -113,6 +113,9 @@ function createHarness(
+   })
+   const runtime: DesktopRuntime = {
+     platform,
++    registerWebPanel: () => {
++      throw new Error('native Web panels are not used by desktop-shell plugin tests')
++    },
+     windowsBuild: platform === 'win32' ? 22_631 : undefined,
+     locale: 'en',
+     updates: {
+diff --git a/dsh-plugin-desktop/tests/verify-packaged-runtime.spec.ts b/dsh-plugin-desktop/tests/verify-packaged-runtime.spec.ts
+index eaabb0618..849b11b22 100644
+--- a/dsh-plugin-desktop/tests/verify-packaged-runtime.spec.ts
++++ b/dsh-plugin-desktop/tests/verify-packaged-runtime.spec.ts
+@@ -211,6 +211,7 @@ describe('packaged desktop runtime verification', () => {
+     expect(REQUIRED_PACKAGED_RUNTIME_ENTRIES).toContain('cordis.patch.yml')
+     expect(REQUIRED_PACKAGED_RUNTIME_ENTRIES.some(entry => entry.startsWith('lib/'))).toBe(false)
+     expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/main.js')
++    expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/web-panels.js')
+     expect(DESKTOP_RUNTIME_ENTRIES).toContain('lib/native-ui/setup-wizard.html')
+   })
+
+diff --git a/dsh-plugin-desktop/tests/web-panels.spec.ts b/dsh-plugin-desktop/tests/web-panels.spec.ts
+new file mode 100644
+index 000000000..6d5714961
+--- /dev/null
++++ b/dsh-plugin-desktop/tests/web-panels.spec.ts
+@@ -0,0 +1,69 @@
++import { Context } from '@deepseek-ai/cordis'
++import { describe, expect, it, vi } from 'vitest'
++import type { DesktopRuntime } from '../src/runtime.ts'
++import DesktopWebPanelService, {
++  type DesktopWebPanelRegistration,
++} from '../src/web-panels.ts'
++
++function createRegistration(): DesktopWebPanelRegistration {
++  return {
++    id: 'specsrelay-deepseek',
++    status: () => ({ state: 'idle', url: 'https://chat.deepseek.com/' }),
++    ready: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    show: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    hide: vi.fn(),
++    reload: async () => ({ state: 'ready', url: 'https://chat.deepseek.com/' }),
++    evaluate: async <T>() => ({ captured: true }) as T,
++    dispose: vi.fn(async () => {}),
++  }
++}
++
++describe('desktop Web panel service', () => {
++  it('publishes the native adapter and closes registrations with its generation', async () => {
++    const native = createRegistration()
++    const registerWebPanel = vi.fn(() => native)
++    const runtime = { registerWebPanel } as unknown as DesktopRuntime
++    const ctx = new Context()
++    const fiber = ctx.plugin(DesktopWebPanelService, runtime)
++    await fiber
++
++    const service = ctx.desktopWebPanels
++    const registration = service.register({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++    expect(registerWebPanel).toHaveBeenCalledOnce()
++    await expect(registration.evaluate<{ captured: boolean }>('capture()'))
++      .resolves.toEqual({ captured: true })
++
++    await fiber.dispose()
++    expect(native.dispose).toHaveBeenCalledOnce()
++    expect(ctx.get('desktopWebPanels')).toBeUndefined()
++    expect(() => service.register({
++      id: 'other',
++      url: 'https://example.com/',
++      allowedOrigins: ['https://example.com'],
++    })).toThrow('service disposed')
++  })
++
++  it('makes consumer disposal idempotent', async () => {
++    const native = createRegistration()
++    const ctx = new Context()
++    const fiber = ctx.plugin(
++      DesktopWebPanelService,
++      { registerWebPanel: () => native } as unknown as DesktopRuntime,
++    )
++    await fiber
++    const registration = ctx.desktopWebPanels.register({
++      id: 'specsrelay-deepseek',
++      url: 'https://chat.deepseek.com/',
++      allowedOrigins: ['https://chat.deepseek.com'],
++    })
++
++    await registration.dispose()
++    await registration.dispose()
++    await fiber.dispose()
++    expect(native.dispose).toHaveBeenCalledOnce()
++  })
++})
+diff --git a/dsh-plugin-desktop/tsdown.config.ts b/dsh-plugin-desktop/tsdown.config.ts
+index c52155457..b6ce1ddec 100644
+--- a/dsh-plugin-desktop/tsdown.config.ts
++++ b/dsh-plugin-desktop/tsdown.config.ts
+@@ -28,6 +28,7 @@ export default defineConfig([
+       'update-checker': 'src/update-checker.ts',
+       'update-download': 'src/update-download.ts',
+       updates: 'src/updates.ts',
++      'web-panels': 'src/web-panels.ts',
+       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',
+       'windows-acl-runner': 'src/windows-acl-runner.ts',
+       main: 'src/main.ts',

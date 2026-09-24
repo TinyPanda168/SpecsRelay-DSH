@@ -20,6 +20,8 @@ The installer recognizes only DSH Desktop. macOS uses `CFBundleIdentifier`; Wind
 
 The installer uses the application's bundled DSH command without modifying the desktop executable. The client must already contain a working native page service.
 
+The installer also checks the application's `./web-panels` export and `lib/web-panels.js` file. Both installation and `--dry-run` stop if these are absent; matching the application identity or version is insufficient. This static check does not replace a real launch test. See the [2.0.13 repair and source patch](desktop-native-repair.md).
+
 ## Native page and layout
 
 The sidebar footer lists Import sessions, SpecsRelay, Phone connection, and Settings in that order when those entries are enabled. SpecsRelay uses the `sidebar.footer.action` slot after the session-import entry.

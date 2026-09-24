@@ -20,6 +20,8 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 
 安装器通过应用内置的 DSH 命令安装插件，不修改客户端可执行文件。客户端本身必须包含可用的原生网页服务。
 
+安装器还检查应用包的 `./web-panels` 导出与 `lib/web-panels.js` 文件。仅应用标识或版本号匹配不足以通过；缺少能力时，真实安装与 `--dry-run` 都会停止。该检查不替代实际启动验证。官方 2.0.13 与配套修复版的区别及源码补丁见[修复说明](desktop-native-repair.md)。
+
 ## 原生网页与布局
 
 左侧栏底部按“导入会话 → SpecsRelay → 手机连接 → 设置”排列（仅显示已启用的入口）。SpecsRelay 使用 `sidebar.footer.action` 插槽，排在会话导入入口之后。

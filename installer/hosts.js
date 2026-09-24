@@ -74,6 +74,29 @@ function executableFor(appPath, platform, bundleExecutable) {
   return appPath;
 }
 
+/** Check the packaged native service before changing a user's DSH profile. */
+export function assertNativeWebPanels(appPath, platform = process.platform) {
+  const root = applicationRoot(appPath, platform);
+  const resources = platform === "darwin" ? "Contents/Resources" : "resources";
+  for (const layout of ["app", "app.asar.unpacked"]) {
+    const packageRoot = join(root, resources, layout);
+    let metadata;
+    try {
+      metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+    } catch {
+      // Try the other supported unpacked application layout.
+      continue;
+    }
+    const entry = metadata.exports?.["./web-panels"];
+    const target = typeof entry === "string" ? entry : entry?.default;
+    if (target === "./lib/web-panels.js" && existsSync(join(packageRoot, target))) return;
+    break;
+  }
+  throw new Error(
+    "当前 DSH Desktop 安装包未提供 SpecsRelay 所需的原生网页支持。请安装带 desktopWebPanels 的配套桌面版本；仅更新插件无法补齐此能力。修复说明：https://github.com/TinyPandaGame/SpecsRelay-DSH/blob/main/docs/desktop-native-repair.md"
+  );
+}
+
 export function resolveHostInstallation(host, appPath, {
   platform = process.platform,
   home = homedir(),
@@ -90,6 +113,7 @@ export function resolveHostInstallation(host, appPath, {
   if (!existsSync(executable)) {
     throw new Error(`${host.name} 的运行程序不存在：${executable}`);
   }
+  assertNativeWebPanels(appPath, platform);
   return {
     hostId: host.id,
     hostName: host.name,
