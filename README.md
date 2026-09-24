@@ -40,4 +40,6 @@ npx --yes github:TinyPandaGame/SpecsRelay-DSH install
 
 [使用指南](docs/usage.md) · [可选 Jev 增强（默认关闭）](docs/jev-features.md) · [数据与安全](docs/usage.md#数据与安全) · [更新记录](CHANGELOG.md)
 
+[外部来源更新与借鉴清单](docs/external-reference-watchlist.md)：记录跟踪来源、版本基线和按需采用判断。
+
 [MIT 开源](LICENSE) · 独立社区插件，仅支持 anywhere-labs DSH Desktop，非 DeepSeek 官方产品。

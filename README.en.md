@@ -40,4 +40,6 @@ Restart the client afterward. [Requirements and custom paths](docs/usage.en.md#q
 
 [User guide](docs/usage.en.md) · [Optional Jev features (off by default)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [Changelog](CHANGELOG.en.md)
 
+[External reference watchlist (Chinese)](docs/external-reference-watchlist.md): tracked sources, version baselines, and selective adoption assessments.
+
 [MIT licensed](LICENSE) · Independent community plugin for DSH Desktop by anywhere-labs only. Not an official DeepSeek product.
