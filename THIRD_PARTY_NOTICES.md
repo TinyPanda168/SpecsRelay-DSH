@@ -8,16 +8,6 @@
 
 The source diff in `docs/desktop-patches/` includes upstream context and SpecsRelay's native-page additions for both desktop channels. It is maintained as a companion patch, not shipped as an upstream release or loaded by the SpecsRelay plugin. The upstream license is preserved at `third_party/dsh-desktop/LICENSE`; build and upgrade instructions are in [desktop repair notes](docs/desktop-native-repair.md).
 
-## Superpowers requirement review checklist
-
-- Project: <https://github.com/obra/superpowers>
-- Upstream commit: `5bf4e78011075bcfc0dc295f0724994cd123ee71`
-- Source: `skills/brainstorming/spec-document-reviewer-prompt.md`, the five rows under "What to Check"
-- License: MIT
-- Copyright: 2025 Jesse Vincent
-
-The five review categories and their descriptions are reproduced in `skills/specsrelay-requirement-analysis/SKILL.md`. SpecsRelay supplies its own method selection, review calibration and JSON output instructions. The upstream reviewer dispatch, file access, approval flow and report format are not included. The full upstream license is preserved at `third_party/superpowers/LICENSE`.
-
 ## AI Chat Exporter
 
 - Project: <https://github.com/TheBluCoder/AI-chat-exporter>

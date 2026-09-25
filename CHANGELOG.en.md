@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.md) | English
 
+## 0.11.2 — 2026-09-25
+
+- Requirement analysis checks user confirmation, plan/scope alignment, acceptance/verification coverage, and remaining questions/readiness against the existing handoff fields before returning output. Organization calls and output fields stay unchanged. Automated tests cover Skill delivery and integration; semantic quality still requires the documented acceptance examples.
+
 ## 0.11.1 — 2026-09-25
 
 - Fix the official Desktop footer: SpecsRelay occupies its own row below Import sessions and above More, with icons and labels aligned with More. Styling is scoped to the official client; community layout is unchanged.

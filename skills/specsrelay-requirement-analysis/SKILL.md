@@ -80,16 +80,12 @@ Use when the current conversation includes an explicit correction or withdrawal,
 
 Perform this review inside the same analysis pass before returning the handoff. Do not emit a separate review artifact or require a second review action.
 
-Use the following review checklist, scaled to the selected coverage level:
+Check the candidate handoff against the evidence ledger and the existing output fields:
 
-<!-- Five checklist rows reproduced from obra/superpowers at 5bf4e78011075bcfc0dc295f0724994cd123ee71. See THIRD_PARTY_NOTICES.md and third_party/superpowers/LICENSE. -->
-| Category | What to Look For |
-|----------|------------------|
-| Completeness | TODOs, placeholders, "TBD", incomplete sections |
-| Consistency | Internal contradictions, conflicting requirements |
-| Clarity | Requirements ambiguous enough to cause someone to build the wrong thing |
-| Scope | Focused enough for a single plan — not covering multiple independent subsystems |
-| YAGNI | Unrequested features, over-engineering |
+- Trace each item in `decisions` to a user statement or acceptance. Move unresolved user choices to `open_questions` and inspectable repository facts to `local_context_needed`.
+- Compare `implementation_plan` with `objective`, `constraints`, and `non_goals`. Remove actions introduced only by an assistant suggestion or a withdrawn requirement. Preserve requested work that remains supported after the latest correction.
+- Match each confirmed behavior to its `acceptance_criteria` and `verification_steps`. Repair a missing connection using the supplied evidence; leave unverified implementation details for DSH to inspect.
+- Recompute `open_questions` from choices still unresolved after the supplied answers and revisions. Set `ready_for_execution` from those remaining material choices, without treating an earlier handoff or review as user approval or completed implementation.
 
 Only material gaps that would change the implementation belong in questions. Wording preferences and uneven detail do not block readiness. Judge scope against the user's actual request: a cohesive feature may legitimately cross subsystems. Do not add features, split work, or demand extra documentation solely to satisfy the checklist.
 
