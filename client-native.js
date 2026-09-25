@@ -2607,24 +2607,31 @@ ${listLines(handoff.open_questions)}`;
         const [open, setOpen] = useState(false);
         const sessionId = useSessions(selectedSessionId);
         const onClick = () => setOpen(true);
+        const shortcutIcon = h("img", {
+          src: SPECSRELAY_ICON,
+          alt: "",
+          "aria-hidden": true,
+          draggable: false,
+          style: {
+            borderRadius: officialBridge ? 3 : 5,
+            display: "block",
+            flex: "none",
+            height: officialBridge ? 14 : 22,
+            width: officialBridge ? 14 : 22
+          }
+        });
         return h(
           React.Fragment,
           null,
+          officialBridge && h("style", null,
+            // The slot wrapper uses display: contents; its parent owns the flex layout.
+            'div:has(> [data-slot="sidebar.footer.action"] > [data-specsrelay-footer="official"]) { flex-direction: column; }'
+          ),
           h(
             Button,
             {
-              icon: h("img", {
-                src: SPECSRELAY_ICON,
-                alt: "",
-                "aria-hidden": true,
-                draggable: false,
-                style: {
-                  borderRadius: 5,
-                  display: "block",
-                  height: 22,
-                  width: 22
-                }
-              }),
+              icon: officialBridge ? undefined : shortcutIcon,
+              "data-specsrelay-footer": officialBridge ? "official" : undefined,
               onClick,
               title: "打开 SpecsRelay",
               "aria-label": "打开 SpecsRelay",
@@ -2642,9 +2649,19 @@ ${listLines(handoff.open_questions)}`;
                 margin: wide ? "4px -4px 4px" : "8px 0 10px",
                 overflow: "hidden",
                 padding: wide ? "6px 2px 6px 10px" : 0,
-                width: wide ? "calc(100% + 8px)" : 36
+                width: wide ? "calc(100% + 8px)" : 36,
+                ...(officialBridge ? {
+                  alignSelf: wide ? "stretch" : "center",
+                  borderRadius: "var(--dsw-radius-md)",
+                  height: wide ? 32 : 36,
+                  lineHeight: "20px",
+                  margin: 0,
+                  padding: wide ? "6px 2px 6px 6px" : 0,
+                  width: wide ? "100%" : 36
+                } : {})
               }
             },
+            officialBridge && shortcutIcon,
             wide && h("span", null, "SpecsRelay")
           ),
           open &&

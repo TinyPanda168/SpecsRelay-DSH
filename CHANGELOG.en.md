@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.md) | English
 
+## 0.11.1 — 2026-09-25
+
+- Fix the official Desktop footer: SpecsRelay occupies its own row below Import sessions and above More, with icons and labels aligned with More. Styling is scoped to the official client; community layout is unchanged.
+
 ## 0.11.0 — 2026-09-25
 
 - **Official Desktop adapter**: support DeepSeek Harness Desktop browser bridge protocol 1, alongside the existing anywhere-labs community adapter. Real DeepSeek pages use an official sandboxed webview lease; close, failure, timeout and late acquisition release it.

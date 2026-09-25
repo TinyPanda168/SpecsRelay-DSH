@@ -13,7 +13,7 @@
 
 插件直接调用官方浏览器 API，独立实现 `lib/official-browser-client.js` 适配层，没有复制或修改官方桌面核心。按项目获取网页租用、创建沙箱化 `webview`，关闭、加载失败、超时和延迟返回时释放租用。抓取和澄清发送前检查 DeepSeek 来源；Node integration、preload 和宿主安全策略保持不变。
 
-网页嵌入左侧 DOM 容器，右侧保持 SpecsRelay 面板。macOS 顶部预留 32 像素，Windows 按宿主布局预留 40 像素；图标同时适配官方 Regular 导出和社区版原有导出。官方会话通过 `retainedBy.mainView` 识别当前选择，项目连接与导航使用 `uiWorkspace`，交接及接续期间显式保留会话，等待接收结果后再报告发送成功。
+网页嵌入左侧 DOM 容器，右侧保持 SpecsRelay 面板。侧栏入口独立排列在导入会话下方、更多上方，图标与文字跟随“更多”按钮的左边距。macOS 顶部预留 32 像素，Windows 按宿主布局预留 40 像素；图标同时适配官方 Regular 导出和社区版原有导出。官方会话通过 `retainedBy.mainView` 识别当前选择，项目连接与导航使用 `uiWorkspace`，交接及接续期间显式保留会话，等待接收结果后再报告发送成功。
 
 验证基线：macOS Apple Silicon，官方 0.1.7-rc.2。真实网页加载、左右布局、标题栏与关闭重开已检查，真实整理模型调用通过。抓取、澄清与交接接口另有自动化测试；网站目前在未登录页显示使用环境提示，尚未完成登录后真实对话到 Agent 的端到端验收。官方 Windows/Linux 未实测，不据此承诺其他版本兼容。
 
