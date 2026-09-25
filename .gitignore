@@ -24,3 +24,6 @@ dsh-deepseek-bridge.json
 
 # Retired local publication material
 product-hunt/archive/
+
+# Private reference tracking (kept under .codex/)
+docs/external-reference-watchlist.md

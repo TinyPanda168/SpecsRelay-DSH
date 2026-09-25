@@ -18,10 +18,6 @@ The source diff in `docs/desktop-patches/` includes upstream context and SpecsRe
 
 The five review categories and their descriptions are reproduced in `skills/specsrelay-requirement-analysis/SKILL.md`. SpecsRelay supplies its own method selection, review calibration and JSON output instructions. The upstream reviewer dispatch, file access, approval flow and report format are not included. The full upstream license is preserved at `third_party/superpowers/LICENSE`.
 
-## Requirement workflow design references
-
-The prerequisite-question selection inspired by [grill-me / grilling](https://github.com/mattpocock/skills), requirement-to-acceptance coverage inspired by [Spec-Kit](https://github.com/github/spec-kit), and revision reconciliation inspired by [OpenSpec](https://github.com/Fission-AI/OpenSpec) are independently written SpecsRelay instructions. No source code, Skill text, or templates from those three projects are copied or vendored. Their source versions, adopted scope, and deferred features are recorded in [the external reference watchlist](docs/external-reference-watchlist.md). Trellis remains a design reference only; none of its material is incorporated.
-
 ## AI Chat Exporter
 
 - Project: <https://github.com/TheBluCoder/AI-chat-exporter>

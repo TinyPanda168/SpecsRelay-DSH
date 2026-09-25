@@ -42,6 +42,4 @@ Restart afterward. [Supported versions and installation](docs/usage.en.md#quick-
 
 [User guide](docs/usage.en.md) · [Optional enhancement (Jev / Laya)](docs/jev-features.en.md) · [Data and security](docs/usage.en.md#data-and-security) · [Changelog](CHANGELOG.en.md)
 
-[External reference watchlist (Chinese)](docs/external-reference-watchlist.md): tracked sources, version baselines, and selective adoption assessments.
-
 [MIT licensed](LICENSE) · Independent community plugin; not an official DeepSeek product.

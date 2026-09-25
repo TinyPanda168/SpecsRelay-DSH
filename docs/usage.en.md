@@ -60,7 +60,7 @@ Open or create a DSH session associated with a Workspace, then select **SpecsRel
 
 The bundled Skill guides the current organizer to combine only the methods the requirement needs: keep small changes concise; ask prerequisite questions first when material choices remain, at most three per round; connect feature requirements to acceptance and verification; and reconcile corrections or withdrawals while retaining unaffected requirements. A proportionate review runs within the same generation.
 
-Continue using **Organize current conversation** without selecting a framework, installing other tools, or adding a Key. Revisions return the complete current requirement; persistent semantic version diffs and stable requirement IDs are not included. Existing format repair and optional long-conversation enhancement may make additional model calls. Review the model's output; see the [adoption record and validation scope (Chinese)](external-reference-watchlist.md#实际采用记录--2026-09-24). Restart DSH Desktop after updating the plugin to reload the bundled Skill.
+Continue using **Organize current conversation** without selecting a framework, installing other tools, or adding a Key. Revisions return the complete current requirement; persistent semantic version diffs and stable requirement IDs are not included. Existing format repair and optional long-conversation enhancement may make additional model calls. Review the model's output; see the [validation scope and acceptance examples (Chinese)](requirement-analysis-evaluation.md). Restart DSH Desktop after updating the plugin to reload the bundled Skill.
 
 ## Optional features
 
